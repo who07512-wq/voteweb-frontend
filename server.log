@@ -1,0 +1,11 @@
+▲ Next.js 16.3.0 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.0.118:3000
+✓ Ready in 2.7s
+⚠ Warning: Next.js ignored package-lock.json in C:\Users\admin\Desktop because it is outside the current Git repository (C:\Users\admin\Desktop\clg voting).
+ To use this directory, set `turbopack.root` in your Next.js config.
+
+✓ Running next.config.ts took 522ms
+⚠ Slow filesystem detected. The benchmark took 550ms. If \\?\C:\Users\admin\Desktop\clg voting\.next\dev is a network drive, consider moving it to a local folder.
+See more: https://nextjs.org/docs/app/guides/local-development
+

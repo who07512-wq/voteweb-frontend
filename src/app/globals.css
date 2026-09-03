@@ -1,0 +1,203 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-primary-50: #FEF2F2;
+  --color-primary-100: #FEE2E2;
+  --color-primary-200: #FECACA;
+  --color-primary-300: #FCA5A5;
+  --color-primary-400: #F87171;
+  --color-primary-500: #f83e3e;
+  --color-primary-600: #f80000;
+  --color-primary-700: #DC2626;
+  --color-primary-800: #B91C1C;
+  --color-primary-900: #991B1B;
+  --color-primary-950: #7F1D1D;
+
+  --color-success-50: #F0FDF4;
+  --color-success-100: #DCFCE7;
+  --color-success-500: #22C55E;
+  --color-success-600: #16A34A;
+
+  --color-warning-50: #FFFBEB;
+  --color-warning-100: #FEF3C7;
+  --color-warning-500: #F59E0B;
+  --color-warning-600: #D97706;
+
+  --color-error-50: #FEF2F2;
+  --color-error-100: #FEE2E2;
+  --color-error-500: #f80000;
+  --color-error-600: #DC2626;
+
+  --color-text-primary: #1A1A2E;
+  --color-text-secondary: #4A4A6A;
+  --color-text-muted: #8888A8;
+
+  --color-border: #E5E7EB;
+  --color-border-strong: #D1D5DB;
+
+  --color-bg-primary: #f8f8f8;
+  --color-bg-secondary: #FFFFFF;
+  --color-bg-tertiary: #F3F4F6;
+
+  --font-sans: "Poppins", system-ui, sans-serif;
+}
+
+:root {
+  --background: #f8f8f8;
+  --foreground: #1A1A2E;
+  --card: #FFFFFF;
+  --border: #E5E7EB;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.transition-all-fast {
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-down {
+  animation: slide-down 200ms ease-out;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fade-in 150ms ease-out;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.5; }
+  50% { transform: scale(1.2); opacity: 0; }
+  100% { transform: scale(1); opacity: 0; }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 1.5s ease-out infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, #FEE2E2 25%, #FECACA 50%, #FEE2E2 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D1D5DB;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #FCA5A5;
+}
+
+::selection {
+  background: #FECACA;
+  color: #1A1A2E;
+}
+
+/* Dark mode overrides */
+.dark {
+  color-scheme: dark;
+
+  --background: #1A1A2E;
+  --foreground: #F3F4F6;
+  --card: #252540;
+  --border: #333355;
+
+  --color-text-primary: #F3F4F6;
+  --color-text-secondary: #A0A0C0;
+  --color-text-muted: #6B6B8D;
+
+  --color-bg-primary: #1A1A2E;
+  --color-bg-secondary: #252540;
+  --color-bg-tertiary: #2D2D4A;
+
+  --color-border: #333355;
+  --color-border-strong: #444466;
+
+  --color-primary-50: #3D1515;
+  --color-primary-100: #4D1A1A;
+  --color-primary-200: #5C2020;
+  --color-primary-300: #F87171;
+  --color-primary-400: #FCA5A5;
+  --color-primary-500: #f83e3e;
+  --color-primary-600: #ff4444;
+  --color-primary-700: #FCA5A5;
+  --color-primary-800: #FEE2E2;
+
+  --color-success-50: #0d2a1a;
+  --color-success-100: #153d28;
+  --color-success-500: #22C55E;
+  --color-success-600: #16A34A;
+  --color-warning-50: #2a2210;
+  --color-warning-100: #3d3218;
+  --color-warning-500: #F59E0B;
+  --color-warning-600: #D97706;
+  --color-error-50: #3D1515;
+  --color-error-100: #4D1A1A;
+  --color-error-500: #f83e3e;
+  --color-error-600: #DC2626;
+}
+
+.dark body {
+  background-color: #1A1A2E;
+  color: #F3F4F6;
+}
+
+.dark ::selection {
+  background: #f80000;
+  color: #FFFFFF;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #444466;
+}
+
+.dark .bg-white {
+  background-color: #252540 !important;
+}
+
+.dark .bg-black\/40,
+.dark .bg-black\/50 {
+  background-color: rgba(10, 10, 20, 0.6) !important;
+}
+
+.dark .bg-white[class*="rounded-full"],
+.dark .bg-white[class*="rounded-full"][class*="w-"] {
+  background-color: #FFFFFF !important;
+}
