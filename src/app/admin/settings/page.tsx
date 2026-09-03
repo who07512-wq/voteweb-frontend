@@ -7,18 +7,13 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
-import { useTheme } from "@/components/ui/ThemeContext";
 import {
   Bell,
-  Palette,
   Globe,
   Shield,
   LogOut,
   Trash2,
   ChevronRight,
-  Sun,
-  Moon,
-  Monitor,
   CheckCircle2,
   AlertTriangle,
   Lock,
@@ -26,13 +21,12 @@ import {
   Users,
 } from "lucide-react";
 
-type Tab = "election" | "notifications" | "security" | "appearance" | "account";
+type Tab = "election" | "notifications" | "security" | "account";
 
 const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "election", label: "Election Settings", icon: Globe },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "security", label: "Security", icon: Shield },
-  { id: "appearance", label: "Appearance", icon: Palette },
   { id: "account", label: "Account", icon: Users },
 ];
 
@@ -79,12 +73,6 @@ const notificationOptions = [
   },
 ];
 
-const appearanceOptions = [
-  { id: "system", label: "System Default", icon: Monitor },
-  { id: "light", label: "Light", icon: Sun },
-  { id: "dark", label: "Dark", icon: Moon },
-];
-
 const possibleRoles = [
   { id: "admin", label: "Election Administrator", description: "Full access to manage elections and administrators" },
   { id: "support", label: "Support Staff", description: "Can manage student issues and support tickets" },
@@ -93,7 +81,6 @@ const possibleRoles = [
 
 export default function AdminSettingsPage() {
   const router = useRouter();
-  const { theme, setTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<Tab>("election");
   const [notifications, setNotifications] = useState(
     notificationOptions.map((n) => ({ ...n }))
@@ -351,60 +338,6 @@ export default function AdminSettingsPage() {
                   </div>
                 </Card>
               </div>
-            )}
-
-            {/* Appearance */}
-            {activeTab === "appearance" && (
-              <Card className="p-6">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 rounded-lg bg-primary-50">
-                    <Palette className="h-5 w-5 text-primary-600" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-semibold text-text-primary">
-                      Appearance
-                    </h2>
-                    <p className="text-sm text-text-secondary">
-                      Customize the look and feel of your dashboard
-                    </p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {appearanceOptions.map((option) => (
-                    <button
-                      key={option.id}
-                      onClick={() => setTheme(option.id as "system" | "light" | "dark")}
-                      className={`relative p-6 rounded-xl border-2 text-center transition-all cursor-pointer ${
-                        theme === option.id
-                          ? "border-primary-600 bg-primary-50"
-                          : "border-border hover:border-border-strong bg-white dark:bg-bg-secondary"
-                      }`}
-                    >
-                      {theme === option.id && (
-                        <div className="absolute top-3 right-3">
-                          <CheckCircle2 className="h-5 w-5 text-primary-600" />
-                        </div>
-                      )}
-                      <option.icon
-                        className={`h-8 w-8 mx-auto mb-3 ${
-                          theme === option.id
-                            ? "text-primary-600"
-                            : "text-text-muted"
-                        }`}
-                      />
-                      <p
-                        className={`text-sm font-medium ${
-                          theme === option.id
-                            ? "text-primary-700"
-                            : "text-text-primary"
-                        }`}
-                      >
-                        {option.label}
-                      </p>
-                    </button>
-                  ))}
-                </div>
-              </Card>
             )}
 
             {/* Account */}

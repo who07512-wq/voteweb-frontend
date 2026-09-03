@@ -6,25 +6,19 @@ import { CandidateLayout } from "@/components/candidate-dashboard/CandidateLayou
 import { Card } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
 import { Badge } from "@/components/ui/Badge"
-import { useTheme } from "@/components/ui/ThemeContext"
 import {
   Bell,
-  Palette,
   Globe,
   Shield,
   LogOut,
   Trash2,
   ChevronRight,
-  Sun,
-  Moon,
-  Monitor,
   CheckCircle2,
   AlertTriangle,
 } from "lucide-react"
 
 export default function CandidateSettingsPage() {
   const router = useRouter()
-  const { theme, setTheme } = useTheme()
   const [activeTab, setActiveTab] = useState("notifications")
   const [showSignOutModal, setShowSignOutModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
@@ -41,7 +35,6 @@ export default function CandidateSettingsPage() {
 
   const tabs = [
     { id: "notifications", label: "Notifications", icon: Bell },
-    { id: "appearance", label: "Appearance", icon: Palette },
     { id: "language", label: "Language", icon: Globe },
     { id: "security", label: "Security", icon: Shield },
     { id: "account", label: "Account", icon: Trash2 },
@@ -83,12 +76,6 @@ export default function CandidateSettingsPage() {
       label: "System Announcements",
       description: "Important system-wide announcements and maintenance notices.",
     },
-  ]
-
-  const appearanceOptions = [
-    { value: "system" as const, label: "System Default", icon: Monitor },
-    { value: "light" as const, label: "Light", icon: Sun },
-    { value: "dark" as const, label: "Dark", icon: Moon },
   ]
 
   const languageOptions = [
@@ -151,42 +138,6 @@ export default function CandidateSettingsPage() {
                         />
                       </button>
                     </div>
-                  ))}
-                </div>
-              </Card>
-            )}
-
-            {activeTab === "appearance" && (
-              <Card className="p-6">
-                <h2 className="text-lg font-semibold text-text-primary mb-1">Appearance</h2>
-                <p className="text-sm text-text-secondary mb-6">Customize the look and feel of the application.</p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {appearanceOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      onClick={() => setTheme(option.value)}
-                      className={`flex flex-col items-center gap-3 p-6 rounded-xl border-2 transition-all ${
-                        theme === option.value
-                          ? "border-primary-500 bg-primary-50"
-                          : "border-border hover:border-border-strong bg-white dark:bg-bg-secondary"
-                      }`}
-                    >
-                      <option.icon
-                        className={`w-8 h-8 ${
-                          theme === option.value ? "text-primary-600" : "text-text-muted"
-                        }`}
-                      />
-                      <span
-                        className={`text-sm font-medium ${
-                          theme === option.value ? "text-primary-700" : "text-text-secondary"
-                        }`}
-                      >
-                        {option.label}
-                      </span>
-                      {theme === option.value && (
-                        <CheckCircle2 className="w-5 h-5 text-primary-600" />
-                      )}
-                    </button>
                   ))}
                 </div>
               </Card>

@@ -98,19 +98,6 @@ class ApiClient {
     return this.post('/auth/login', { userIdentifier: identifier, password, role });
   }
 
-  async registerInstant(data: {
-    email: string;
-    username: string;
-    fullName: string;
-    mobileNumber: string;
-    enrollmentNumber: string;
-    password: string;
-    confirmPassword: string;
-    role: string;
-  }) {
-    return this.post('/auth/register/instant', data);
-  }
-
   async getMe() {
     return this.get('/auth/me');
   }

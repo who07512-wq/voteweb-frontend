@@ -7,29 +7,23 @@ import { StudentLayout } from "@/components/layout/StudentLayout";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { useTheme } from "@/components/ui/ThemeContext";
 import { MOCK_NOTIFICATION_SETTINGS, MOCK_STUDENT_PROFILE } from "@/lib/student-profile-data";
 import {
   Bell,
-  Palette,
   Globe,
   Shield,
   LogOut,
   Trash2,
   User,
   ChevronRight,
-  Sun,
-  Moon,
-  Monitor,
   CheckCircle2,
   AlertTriangle,
 } from "lucide-react";
 
-type SettingsTab = "notifications" | "appearance" | "language" | "security" | "account";
+type SettingsTab = "notifications" | "language" | "security" | "account";
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { theme, setTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>("notifications");
   const [notifications, setNotifications] = useState(MOCK_NOTIFICATION_SETTINGS);
   const [language, setLanguage] = useState("en");
@@ -47,7 +41,6 @@ export default function SettingsPage() {
 
   const SETTINGS_TABS: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
     { id: "notifications", label: "Notifications", icon: Bell },
-    { id: "appearance", label: "Appearance", icon: Palette },
     { id: "language", label: "Language", icon: Globe },
     { id: "security", label: "Security", icon: Shield },
     { id: "account", label: "Account", icon: LogOut },
@@ -120,35 +113,6 @@ export default function SettingsPage() {
                             />
                           </button>
                         </div>
-                      ))}
-                    </div>
-                  </Card>
-                )}
-
-                {/* Appearance */}
-                {activeTab === "appearance" && (
-                  <Card className="p-5 border-border">
-                    <h2 className="text-lg font-bold text-text-primary mb-4">Appearance</h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      {([
-                        { id: "system" as const, label: "System Default", icon: Monitor },
-                        { id: "light" as const, label: "Light", icon: Sun },
-                        { id: "dark" as const, label: "Dark", icon: Moon },
-                      ]).map((option) => (
-                        <button
-                          key={option.id}
-                          onClick={() => setTheme(option.id)}
-                          className={`p-4 rounded-xl border-2 text-center transition-colors ${
-                            theme === option.id
-                              ? "border-primary-600 bg-primary-50"
-                              : "border-border hover:border-primary-200"
-                          }`}
-                        >
-                          <option.icon className={`w-6 h-6 mx-auto mb-2 ${theme === option.id ? "text-primary-600" : "text-text-secondary"}`} />
-                          <span className={`text-sm font-medium ${theme === option.id ? "text-primary-700" : "text-text-primary"}`}>
-                            {option.label}
-                          </span>
-                        </button>
                       ))}
                     </div>
                   </Card>

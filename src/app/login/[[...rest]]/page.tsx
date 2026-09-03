@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { SignIn } from "@clerk/nextjs";
+import { hasRollNumber } from "@/lib/roll-number";
 import { HelpCircle, BookOpen, Mail, ArrowLeft, CheckCircle, Loader2 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
@@ -16,8 +18,47 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://vote-main-productio
 
 type LoginStep = "email" | "otp" | "success";
 
-export default function LoginPage() {
+const clerkAppearance = {
+  elements: {
+    rootBox: "w-full",
+    card: "shadow-none border border-gray-200 rounded-2xl",
+  },
+};
+
+function ClerkAuthView() {
+  return (
+    <AuthLayout>
+      <AuthCard>
+        <div className="text-center mb-6">
+          <div className="w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center mx-auto mb-4">
+            <Mail className="w-6 h-6 text-primary-600" />
+          </div>
+          <AuthHeader
+            title="Candidate Sign In"
+            subtitle="Continue with Don Bosco Institute of Technology"
+          />
+        </div>
+        <SignIn
+          appearance={clerkAppearance}
+          fallbackRedirectUrl="/candidate/dashboard"
+        />
+        <div className="pt-4 border-t border-gray-200 mt-4">
+          <Link
+            href="/login"
+            className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+          >
+            ← Back to sign in options
+          </Link>
+        </div>
+      </AuthCard>
+    </AuthLayout>
+  );
+}
+
+function LoginPageInner() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [step, setStep] = useState<LoginStep>("email");
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
@@ -35,6 +76,17 @@ export default function LoginPage() {
       return () => clearTimeout(timer);
     }
   }, [cooldown]);
+
+  // Clerk normalizes some flow URLs to hash routes under /login (e.g. it
+  // rewrites /login/create/verify to /login#/create?...), so the hash must
+  // be tracked too - it is not available during SSR.
+  const [hash, setHash] = useState("");
+  useEffect(() => {
+    const syncHash = () => setHash(window.location.hash);
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
+  }, []);
 
   const getDashboardRoute = (role: UserRole): string => {
     switch (role) {
@@ -176,9 +228,23 @@ export default function LoginPage() {
       // Success!
       setStep("success");
 
-      // Redirect after showing success
+      // Redirect after showing success. Students and candidates must enter
+      // their roll number once (before their first dashboard visit) if they
+      // have not provided it yet.
       setTimeout(() => {
-        router.push(getDashboardRoute(selectedRole));
+        const dest = getDashboardRoute(selectedRole);
+        if (
+          (selectedRole === "student" || selectedRole === "candidate") &&
+          !hasRollNumber(selectedRole, userEmail)
+        ) {
+          router.replace(
+            `/roll-number?role=${selectedRole}&email=${encodeURIComponent(
+              userEmail
+            )}&next=${encodeURIComponent(dest)}`
+          );
+        } else {
+          router.push(dest);
+        }
       }, 1500);
 
       setIsLoading(false);
@@ -195,6 +261,25 @@ export default function LoginPage() {
     setError("");
     setUserEmail("");
   };
+
+  // Clerk's callback / verification routes all live under /login (e.g.
+  // /login/verify, /login/create/verify, /login/sso-callback, and the
+  // catch-all probe /login/SignIn_clerk_catchall_check_*). They land here
+  // through the [[...rest]] catch-all, so whenever the URL is anything other
+  // than exactly /login - or carries Clerk state params - we must mount the
+  // Clerk component, otherwise a pending sign-in / sign-up attempt (like an
+  // emailed verification link) can never complete.
+  const isDeepClerkPath =
+    pathname !== "/login" && pathname.startsWith("/login/");
+  const hasClerkParams = Array.from(searchParams?.keys() ?? []).some((key) =>
+    key.startsWith("__clerk")
+  );
+  const hasClerkHash = hash.startsWith("#/");
+  const isClerkFlow = isDeepClerkPath || hasClerkParams || hasClerkHash;
+
+  if (isClerkFlow) {
+    return <ClerkAuthView />;
+  }
 
   // ======= EMAIL STEP =======
   if (step === "email") {
@@ -223,45 +308,53 @@ export default function LoginPage() {
               onSelect={setSelectedRole}
             />
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Email Address
-              </label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                required
-                autoFocus
-              />
-            </div>
+            {selectedRole === "candidate" ? (
+              <div className="pt-2">
+                <SignIn
+                  appearance={{
+                    elements: {
+                      rootBox: "w-full",
+                      card: "shadow-none border border-gray-200 rounded-2xl",
+                      footerAction: "hidden",
+                    },
+                  }}
+                  fallbackRedirectUrl="/candidate/dashboard"
+                />
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Email Address
+                  </label>
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    required
+                    autoFocus
+                  />
+                </div>
 
-            <Button
-              type="submit"
-              variant="primary"
-              className="w-full"
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <span className="flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Sending...
-                </span>
-              ) : (
-                "Send Login Code"
-              )}
-            </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  className="w-full"
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Sending...
+                    </span>
+                  ) : (
+                    "Send Login Code"
+                  )}
+                </Button>
+              </>
+            )}
           </form>
-
-          <div className="pt-4 border-t border-gray-200">
-            <p className="text-center text-sm text-gray-600">
-              Don&apos;t have an account?{" "}
-              <Link href="/register" className="text-primary-600 hover:text-primary-700 font-medium">
-                Register
-              </Link>
-            </p>
-          </div>
 
           <div className="pt-4 border-t border-gray-200">
             <div className="flex flex-wrap gap-4 justify-center text-xs text-gray-500">
@@ -385,5 +478,13 @@ export default function LoginPage() {
         </div>
       </AuthCard>
     </AuthLayout>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageInner />
+    </Suspense>
   );
 }
