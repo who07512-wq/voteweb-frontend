@@ -120,6 +120,12 @@ function LoginPageInner() {
           </p>
         </div>
 
+        <p className="text-center mt-4">
+          <Link href="/email-recovery" className="text-xs text-primary-600 hover:text-primary-700 hover:underline">
+            Can&apos;t access your registered email?
+          </Link>
+        </p>
+
         <div className="pt-4 border-t border-gray-200 mt-6">
           <div className="flex flex-wrap gap-4 justify-center text-xs text-gray-500">
             <Link href="/student/help" className="flex items-center gap-1 hover:text-primary-600">
