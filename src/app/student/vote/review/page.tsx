@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { StudentLayout } from "@/components/layout/StudentLayout";
 import { Card } from "@/components/ui/Card";
@@ -22,9 +22,8 @@ import { AlertCircle } from "lucide-react";
 
 const STEPS = ["Select Candidates", "Review Ballot", "Confirm Vote"];
 
-function ReviewPageInner() {
+function ReviewPageInner({ searchParams }: { searchParams: { get(key: string): string | null } }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { selections, seedSelections, resetSelections } = useVoting();
 
   const [positions, setPositions] = useState<VotingPosition[]>([]);
@@ -280,10 +279,17 @@ function ReviewPageInner() {
   );
 }
 
+function ReviewPageSuspense() {
+  const searchParams = useSearchParams();
+  return <ReviewPageInner searchParams={searchParams} />;
+}
+
 export default function ReviewPage() {
   return (
     <VotingProvider>
-      <ReviewPageInner />
+      <Suspense fallback={null}>
+        <ReviewPageSuspense />
+      </Suspense>
     </VotingProvider>
   );
 }
