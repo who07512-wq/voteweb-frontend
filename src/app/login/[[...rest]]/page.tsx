@@ -3,7 +3,6 @@
 import React, { useState, Suspense } from "react";
 import Link from "next/link";
 import { useSignIn } from "@clerk/nextjs";
-import { hasRollNumber } from "@/lib/roll-number";
 import { HelpCircle, Loader2 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
@@ -12,38 +11,43 @@ import { RoleSelector } from "@/components/auth/RoleSelector";
 import type { UserRole } from "@/lib/auth-types";
 
 /**
- * Google-only sign-in via Clerk.
+ * Google-only sign-in via Clerk (signal-based API, Clerk 7).
  *
- * After Clerk authenticates the Google session, we hop to /auth/clerk-callback
- * which exchanges the Clerk session for a backend session (cv_sid cookie) via
- * POST /auth/clerk-session, then routes to the role dashboard.
+ * After Clerk authenticates the Google session it lands on
+ * /auth/clerk-callback, which completes the OAuth handshake and then
+ * exchanges the Clerk session for a backend session (cv_sid cookie).
  *
  * The OTP email flow was removed (no mail provider configured).
  */
 function LoginPageInner() {
-  const { isLoaded, signIn } = useSignIn();
+  const { signIn } = useSignIn();
+  const isLoaded = Boolean(signIn);
   const [selectedRole, setSelectedRole] = useState<UserRole>("student");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
   const startGoogleSignIn = async () => {
     setError("");
-    if (!isLoaded || !signIn) {
+    if (!signIn) {
       setError("Sign-in is still loading. Please try again in a moment.");
       return;
     }
     setIsLoading(true);
     try {
-      // Store the chosen role for the callback page (sessionStorage is
-      // per-tab and dies with the tab - no stale roles across sessions).
+      // Role chosen here is read by the callback page after Google returns.
       sessionStorage.setItem("campusvote_login_role", selectedRole);
 
-      await signIn.authenticateWithRedirect({
+      const { error: ssoError } = await signIn.sso({
         strategy: "oauth_google",
         redirectUrl: "/auth/clerk-callback",
-        redirectUrlComplete: "/auth/clerk-callback",
+        redirectCallbackUrl: "/auth/clerk-callback",
       });
-      // Browser navigates away to Google; nothing else to do here.
+      if (ssoError) {
+        console.error("Google sign-in failed:", ssoError);
+        setError("Could not start Google sign-in. Please try again.");
+        setIsLoading(false);
+      }
+      // On success the browser navigates away to Google; nothing else to do.
     } catch (err) {
       console.error("Google sign-in failed:", err);
       setError("Could not start Google sign-in. Please try again.");
