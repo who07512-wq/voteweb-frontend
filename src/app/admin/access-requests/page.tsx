@@ -75,8 +75,8 @@ export default function AdminAccessRequestsPage() {
       const res = await api.get<{ requests: AccessRequest[]; counts: Record<string, number> }>(
         "/admin/access-requests"
       );
-      setRequests(res.data?.requests || []);
-      setCounts(res.data?.counts || {});
+      setRequests(res.requests || []);
+      setCounts(res.counts || {});
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load access requests.");
     }
