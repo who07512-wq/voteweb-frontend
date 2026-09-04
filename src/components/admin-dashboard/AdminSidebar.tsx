@@ -33,7 +33,6 @@ const MENU_SECTIONS = [
       { label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
       { label: "Election", href: "/admin/election", icon: Vote },
       { label: "Positions", href: "/admin/positions", icon: BarChart3 },
-      { label: "Schedule", href: "/admin/schedule", icon: Calendar },
       { label: "Announcements", href: "/admin/announcements", icon: Megaphone },
     ],
   },
@@ -46,10 +45,9 @@ const MENU_SECTIONS = [
     ],
   },
   {
-    label: "RESULTS & REPORTS",
+    label: "RESULTS",
     items: [
       { label: "Results", href: "/admin/results", icon: BarChart3 },
-      { label: "Reports", href: "/admin/reports", icon: BarChart3 },
     ],
   },
   {
