@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth, useUser } from "@clerk/nextjs";
+import { AuthenticateWithRedirectCallback, useAuth, useUser } from "@clerk/nextjs";
 import { Loader2 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
@@ -10,15 +10,17 @@ import { hasRollNumber } from "@/lib/roll-number";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api/v1";
 
-type BridgeStep = "checking" | "success" | "error";
+type BridgeStep = "checking" | "bridging" | "success" | "error";
 
 /**
- * Clerk → backend session bridge.
+ * Clerk OAuth callback + backend session bridge.
  *
- * Runs after Google sign-in (Clerk redirects back here). Exchanges the Clerk
- * session for a backend session (cv_sid cookie) via POST /auth/clerk-session,
- * then routes to the role dashboard (capturing the roll number first if the
- * user has never provided one).
+ * 1. <AuthenticateWithRedirectCallback /> completes the Google OAuth
+ *    handshake (verifies the redirect from accounts.google.com via Clerk).
+ * 2. Once Clerk reports a signed-in user, this page exchanges the Clerk
+ *    session for a backend session (cv_sid cookie) via POST /auth/clerk-session,
+ *    then routes to the role dashboard (capturing the roll number first if the
+ *    user has never provided one).
  */
 function ClerkCallbackInner() {
   const { isLoaded, isSignedIn, getToken } = useAuth();
@@ -26,22 +28,17 @@ function ClerkCallbackInner() {
   const router = useRouter();
   const [step, setStep] = useState<BridgeStep>("checking");
   const [errorMsg, setErrorMsg] = useState("");
-  const started = useRef(false);
+  const bridged = useRef(false);
 
+  // Step 2: once Clerk finishes the OAuth handshake, bridge to the backend.
   useEffect(() => {
-    if (started.current) return;
-    if (!isLoaded) return;
-    started.current = true;
+    if (!isLoaded || !isSignedIn || !user || bridged.current) return;
+    bridged.current = true;
 
     (async () => {
       try {
-        if (!isSignedIn || !user) {
-          setErrorMsg("You are not signed in. Please start again from the login page.");
-          setStep("error");
-          return;
-        }
+        setStep("bridging");
 
-        // Primary email address from the Clerk (Google) profile
         const primaryEmail =
           user.primaryEmailAddress?.emailAddress ||
           user.emailAddresses?.[0]?.emailAddress;
@@ -51,13 +48,9 @@ function ClerkCallbackInner() {
           return;
         }
 
-        // Session token (JWT) - verified server-side against Clerk's JWKS
         const token = await getToken();
-
-        // Role chosen on the login page
         const role = sessionStorage.getItem("campusvote_login_role") || "student";
 
-        // CSRF token for the backend
         const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
         const csrfData = await csrfRes.json();
         const csrfToken = csrfData.data?.csrfToken || "";
@@ -85,7 +78,6 @@ function ClerkCallbackInner() {
           return;
         }
 
-        // Persist binding token for authenticated writes
         if (data.data?.bindingToken) {
           try {
             const { setBindingToken } = await import("@/lib/session-binding");
@@ -98,7 +90,6 @@ function ClerkCallbackInner() {
         sessionStorage.removeItem("campusvote_login_role");
         setStep("success");
 
-        // One-time roll number capture, then dashboard
         const dashboards: Record<string, string> = {
           student: "/student/dashboard",
           candidate: "/candidate/dashboard",
@@ -126,17 +117,24 @@ function ClerkCallbackInner() {
     })();
   }, [isLoaded, isSignedIn, user, getToken, router]);
 
+  // Step 1: let Clerk complete the OAuth handshake while signed out.
+  if (!isLoaded || !isSignedIn) {
+    return <AuthenticateWithRedirectCallback />;
+  }
+
   return (
     <AuthLayout>
       <AuthCard>
         <div className="text-center py-8">
-          {step === "checking" && (
+          {(step === "checking" || step === "bridging") && (
             <>
               <Loader2 className="w-10 h-10 animate-spin text-primary-600 mx-auto mb-4" />
               <h2 className="text-lg font-semibold text-gray-900 mb-1">
-                Completing sign-in...
+                {step === "bridging" ? "Setting up your session..." : "Completing sign-in..."}
               </h2>
-              <p className="text-sm text-gray-500">Setting up your secure session</p>
+              <p className="text-sm text-gray-500">
+                {step === "bridging" ? "Connecting your Google account to CampusVote" : "Verifying your Google account"}
+              </p>
             </>
           )}
           {step === "success" && (
