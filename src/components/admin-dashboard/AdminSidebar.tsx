@@ -18,6 +18,7 @@ import {
   Settings,
   LogOut,
   Shield,
+  UserPlus,
 } from "lucide-react";
 
 export interface AdminSidebarProps {
@@ -41,6 +42,7 @@ const MENU_SECTIONS = [
     items: [
       { label: "Candidates", href: "/admin/candidates", icon: Users },
       { label: "Students", href: "/admin/students", icon: UserCheck },
+      { label: "Access Requests", href: "/admin/access-requests", icon: UserPlus },
     ],
   },
   {
