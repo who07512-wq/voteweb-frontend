@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSignIn } from "@clerk/nextjs";
+import { useSignIn, useClerk } from "@clerk/nextjs";
 import { HelpCircle, Loader2, ShieldAlert } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
@@ -15,9 +15,14 @@ import type { UserRole } from "@/lib/auth-types";
  * /login/cad and /login/admin. The `portal` prop preselects (and for
  * non-student portals locks) the role; the backend still verifies the
  * DB role after Google returns.
+ *
+ * Google sign-in is resilient: it tries Clerk's signal-based sso() API
+ * first, then the classic authenticateWithRedirect(), then Clerk's
+ * hosted sign-in page — so a single API hiccup never blocks sign-in.
  */
 export function RoleLoginPage({ portal }: { portal: "any" | "student" | "cad" | "admin" }) {
   const { signIn } = useSignIn();
+  const clerk = useClerk();
   const isLoaded = Boolean(signIn);
   const [selectedRole, setSelectedRole] = useState<UserRole>(
     portal === "student" ? "student" : portal === "cad" ? "cad" : portal === "admin" ? "administrator" : "student"
@@ -43,30 +48,63 @@ export function RoleLoginPage({ portal }: { portal: "any" | "student" | "cad" | 
     }
   }, []);
 
+  const describe = (err: unknown): string => {
+    const anyErr = err as { code?: string; message?: string } | null;
+    const code = anyErr?.code ? ` (code: ${anyErr.code})` : "";
+    const message = anyErr?.message ? ` — ${anyErr.message}` : "";
+    return `${code}${message}`;
+  };
+
   const startGoogleSignIn = async () => {
     setError("");
-    if (!signIn) {
+    if (!signIn || !clerk) {
       setError("Sign-in is still loading. Please try again in a moment.");
       return;
     }
     setIsLoading(true);
+    sessionStorage.setItem("campusvote_login_role", selectedRole);
+
+    const options = {
+      strategy: "oauth_google" as const,
+      redirectUrl: "/auth/clerk-callback",
+      redirectCallbackUrl: "/auth/clerk-callback",
+    };
+
+    // Attempt 1: signal-based sso() (current Clerk v7 API)
     try {
-      sessionStorage.setItem("campusvote_login_role", selectedRole);
-      const { error: ssoError } = await signIn.sso({
-        strategy: "oauth_google",
-        redirectUrl: "/auth/clerk-callback",
-        redirectCallbackUrl: "/auth/clerk-callback",
-      });
-      if (ssoError) {
-        console.error("Google sign-in failed:", ssoError);
-        setError("Could not start Google sign-in. Please try again.");
-        setIsLoading(false);
+      const res = (await signIn.sso(options)) as { error?: unknown } | undefined;
+      if (!res?.error) return; // browser is navigating to Google
+      console.error("Google sign-in (sso) failed:", res.error);
+    } catch (err) {
+      console.error("Google sign-in (sso) threw:", err);
+    }
+
+    // Attempt 2: classic authenticateWithRedirect (older API — present in
+    // some clerk-js builds; skipped safely if this version dropped it)
+    try {
+      const legacy = signIn as unknown as {
+        authenticateWithRedirect?: (o: typeof options) => Promise<unknown>;
+      };
+      if (typeof legacy.authenticateWithRedirect === "function") {
+        await legacy.authenticateWithRedirect(options);
+        return; // navigating to Google
       }
     } catch (err) {
-      console.error("Google sign-in failed:", err);
-      setError("Could not start Google sign-in. Please try again.");
-      setIsLoading(false);
+      console.error("Google sign-in (authenticateWithRedirect) failed:", err);
     }
+
+    // Attempt 3: Clerk hosted sign-in page (most robust path)
+    try {
+      clerk.redirectToSignIn({ redirectUrl: "/auth/clerk-callback" });
+      return;
+    } catch (err) {
+      console.error("Google sign-in (hosted) failed:", err);
+    }
+
+    setError(
+      "Google sign-in could not be started. Please refresh the page and try again — if it keeps failing, check that you are visiting the official site URL."
+    );
+    setIsLoading(false);
   };
 
   return (
@@ -122,37 +160,25 @@ export function RoleLoginPage({ portal }: { portal: "any" | "student" | "cad" | 
                   <path fill="#FBBC05" d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.98-3.09z" />
                   <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75z" />
                 </svg>
-                <span className="font-medium text-gray-700">Continue with Google</span>
+                <span className="text-gray-700 font-medium">Continue with Google</span>
               </>
             )}
           </button>
 
-          <p className="text-xs text-center text-gray-500">
-            {portal === "any"
-              ? "Students, candidates, and administrators all sign in with Google. First-time users will be asked for their roll number once."
-              : "Only accounts with the correct role in the voting system can complete sign-in."}
-          </p>
-
-          {portal === "any" && (
-            <p className="text-center">
-              <Link href="/access-request" className="text-sm text-primary-600 hover:text-primary-700 hover:underline font-medium">
-                Request Voting Access
-              </Link>
-            </p>
-          )}
-        </div>
-
-        <div className="pt-4 border-t border-gray-200 mt-6">
-          <div className="flex flex-wrap gap-4 justify-center text-xs text-gray-500">
-            <Link href="/student/help" className="flex items-center gap-1 hover:text-primary-600">
-              <HelpCircle className="w-3.5 h-3.5" />
-              Help
+          <div className="flex items-center justify-between text-xs text-text-secondary pt-1">
+            <Link href="/access-request" className="hover:text-primary-600 transition-colors">
+              Request voting access
             </Link>
-            <Link href="/access-request/status" className="flex items-center gap-1 hover:text-primary-600">
-              <ShieldAlert className="w-3.5 h-3.5" />
-              Request status
+            <Link href="/email-recovery" className="hover:text-primary-600 transition-colors">
+              Can&apos;t access your registered email?
             </Link>
           </div>
+        </div>
+
+        <div className="mt-6 pt-4 border-t border-border text-xs text-text-secondary text-center flex items-center justify-center gap-1.5">
+          <ShieldAlert className="w-3.5 h-3.5" />
+          Secured by Clerk — your Google password is never shared with CampusVote
+          <HelpCircle className="w-3 h-3 opacity-50" />
         </div>
       </AuthCard>
     </AuthLayout>
