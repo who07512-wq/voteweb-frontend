@@ -8,19 +8,27 @@ import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
 import { hasRollNumber } from "@/lib/roll-number";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api/v1";
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
 type BridgeStep = "checking" | "bridging" | "success" | "error";
+
+const PORTAL_ROLE_MAP: Record<string, string> = {
+  student: "STUDENT",
+  candidate: "CANDIDATE",
+  administrator: "ADMIN",
+  cad: "CAD",
+};
 
 /**
  * Clerk OAuth callback + backend session bridge.
  *
- * 1. <AuthenticateWithRedirectCallback /> completes the Google OAuth
- *    handshake (verifies the redirect from accounts.google.com via Clerk).
- * 2. Once Clerk reports a signed-in user, this page exchanges the Clerk
- *    session for a backend session (cv_sid cookie) via POST /auth/clerk-session,
- *    then routes to the role dashboard (capturing the roll number first if the
- *    user has never provided one).
+ * 1. <AuthenticateWithRedirectCallback /> completes the Google OAuth handshake.
+ * 2. The Clerk session is exchanged for a backend session (cv_sid cookie) via
+ *    POST /auth/clerk-session.
+ * 3. PORTAL ROLE ENFORCEMENT: the role chosen on the login portal is checked
+ *    against the role the backend database reports. A mismatch (e.g. a student
+ *    using /login/admin) is rejected: the backend session is destroyed and the
+ *    user is sent back to their portal with an error.
  */
 function ClerkCallbackInner() {
   const { isLoaded, isSignedIn, getToken } = useAuth();
@@ -30,7 +38,6 @@ function ClerkCallbackInner() {
   const [errorMsg, setErrorMsg] = useState("");
   const bridged = useRef(false);
 
-  // Step 2: once Clerk finishes the OAuth handshake, bridge to the backend.
   useEffect(() => {
     if (!isLoaded || !isSignedIn || !user || bridged.current) return;
     bridged.current = true;
@@ -49,7 +56,8 @@ function ClerkCallbackInner() {
         }
 
         const token = await getToken();
-        const role = sessionStorage.getItem("campusvote_login_role") || "student";
+        const roleRaw = sessionStorage.getItem("campusvote_login_role") || "student";
+        const role = roleRaw.toUpperCase();
 
         const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
         const csrfData = await csrfRes.json();
@@ -66,15 +74,42 @@ function ClerkCallbackInner() {
           body: JSON.stringify({
             email: primaryEmail,
             name: user.fullName || user.firstName || "",
-            role: role.toUpperCase(),
+            role: role,
           }),
         });
 
         const data = await res.json().catch(() => ({}));
 
         if (!res.ok) {
+          sessionStorage.setItem("campusvote_role_mismatch", "1");
           setErrorMsg(data.error?.message || "Sign-in bridge failed. Please try again.");
           setStep("error");
+          return;
+        }
+
+        const dbRole = String(data.data?.user?.role || "").toUpperCase();
+        const portalExpects = PORTAL_ROLE_MAP[roleRaw];
+
+        // Cross-role protection: portal must match the database role.
+        // ADMIN may sign in from any portal (admins can do everything);
+        // everyone else must use their own portal.
+        const portalAllowed =
+          dbRole === "ADMIN" || portalExpects === dbRole || roleRaw === "any";
+
+        if (!portalAllowed) {
+          // Kill the just-created session — wrong portal.
+          await fetch(`${API_BASE}/auth/logout`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+            credentials: "include",
+          }).catch(() => {});
+          sessionStorage.setItem("campusvote_role_mismatch", "1");
+          sessionStorage.removeItem("campusvote_login_role");
+          setTimeout(() => router.replace(`/login/${roleRaw}`), 600);
+          setStep("error");
+          setErrorMsg(
+            `This account's role (${dbRole}) does not match this portal. You have been signed out.`
+          );
           return;
         }
 
@@ -90,20 +125,22 @@ function ClerkCallbackInner() {
         sessionStorage.removeItem("campusvote_login_role");
         setStep("success");
 
+        // Route by the DATABASE role (server-side truth), not the portal picked
         const dashboards: Record<string, string> = {
-          student: "/student/dashboard",
-          candidate: "/candidate/dashboard",
-          administrator: "/admin/dashboard",
+          STUDENT: "/student/dashboard",
+          CANDIDATE: "/candidate/dashboard",
+          ADMIN: "/admin/dashboard",
+          CAD: "/cad/dashboard",
         };
-        const dest = dashboards[role] || "/student/dashboard";
+        const dest = dashboards[dbRole] || "/student/dashboard";
         const needsRoll =
-          (role === "student" || role === "candidate") &&
-          !hasRollNumber(role, primaryEmail);
+          (dbRole === "STUDENT" || dbRole === "CANDIDATE") &&
+          !hasRollNumber(dbRole.toLowerCase(), primaryEmail);
 
         setTimeout(() => {
           if (needsRoll) {
             router.replace(
-              `/roll-number?role=${role}&email=${encodeURIComponent(primaryEmail)}&next=${encodeURIComponent(dest)}`
+              `/roll-number?role=${dbRole.toLowerCase()}&email=${encodeURIComponent(primaryEmail)}&next=${encodeURIComponent(dest)}`
             );
           } else {
             router.replace(dest);
@@ -117,7 +154,6 @@ function ClerkCallbackInner() {
     })();
   }, [isLoaded, isSignedIn, user, getToken, router]);
 
-  // Step 1: let Clerk complete the OAuth handshake while signed out.
   if (!isLoaded || !isSignedIn) {
     return <AuthenticateWithRedirectCallback />;
   }
