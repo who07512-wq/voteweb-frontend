@@ -1,4 +1,4 @@
-export type UserRole = "student" | "candidate" | "administrator";
+export type UserRole = "student" | "candidate" | "administrator" | "cad";
 
 export interface MockCredentials {
   email: string;

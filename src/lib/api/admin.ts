@@ -1,75 +1,92 @@
 import { api } from "./client";
 
-export interface AdminElection {
-  id: string;
+export interface AdminStats {
+  students: { total: number; active: number; voting_eligible: number };
+  elections: { total: number; open: number; published: number };
+  candidates: { total: number };
+  votes: { total: number; unique_voters: number };
+  accessRequests: { total: number; pending: number };
+  pendingCandidateApplications: number;
+  generatedAt: string;
+}
+
+export interface AdminStudentRecord {
+  id: number;
+  student_id: string | null;
+  name: string;
+  email: string | null;
+  role: string;
+  is_active: boolean;
+  voting_eligible?: boolean;
+}
+
+export interface AdminElectionRecord {
+  id: number;
   name: string;
   status: string;
-  startDate: string;
-  endDate: string;
-  eligibleStudents: number;
-  totalPositions: number;
-  participation: number;
+  start_time: string | null;
+  end_time: string | null;
 }
 
-export interface AdminStudent {
-  id: string;
-  name: string;
-  email: string;
-  department: string;
-  year: string;
-  section: string;
-  hasVoted: boolean;
-  status: string;
-}
-
-export interface ScheduleEvent {
-  id: string;
-  title: string;
-  date: string;
-  time: string;
-  type: string;
-  status: string;
-}
-
-export interface Announcement {
-  id: string;
+export interface AdminAnnouncementRecord {
+  id: number;
   title: string;
   content: string;
-  date: string;
-  priority: string;
   status: string;
+  created_at: string;
 }
 
-export interface AdminIssue {
-  id: string;
-  title: string;
-  category: string;
-  reportedBy: string;
-  date: string;
-  status: string;
-  priority: string;
+export interface SupportRequestRecord {
+  id: number;
+  subject?: string;
+  category?: string;
+  message?: string;
+  status?: string;
+  created_at?: string;
+  [key: string]: unknown;
 }
 
-export interface ActivityLogEntry {
-  id: string;
+export interface AuditLogRecord {
+  id: number;
   action: string;
-  user: string;
-  timestamp: string;
-  details: string;
+  user_name: string | null;
+  user_role: string | null;
+  ip_address: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
 }
 
+/**
+ * All admin data access — REAL backend endpoints only (no mock data).
+ * The api client handles cookies, CSRF tokens and session binding.
+ */
 export const adminApi = {
-  getElection: () => api.get<AdminElection>("/admin/election"),
-  updateElection: (data: Partial<AdminElection>) => api.put("/admin/election", data),
-  getStudents: () => api.get<AdminStudent[]>("/admin/students"),
-  getSchedule: () => api.get<ScheduleEvent[]>("/admin/schedule"),
-  addScheduleEvent: (data: Omit<ScheduleEvent, "id">) => api.post<ScheduleEvent>("/admin/schedule", data),
-  deleteScheduleEvent: (id: string) => api.delete(`/admin/schedule/${id}`),
-  getAnnouncements: () => api.get<Announcement[]>("/admin/announcements"),
-  addAnnouncement: (data: Omit<Announcement, "id">) => api.post<Announcement>("/admin/announcements", data),
-  deleteAnnouncement: (id: string) => api.delete(`/admin/announcements/${id}`),
-  getIssues: () => api.get<AdminIssue[]>("/admin/issues"),
-  updateIssue: (id: string, data: Partial<AdminIssue>) => api.patch(`/admin/issues/${id}`, data),
-  getActivity: () => api.get<ActivityLogEntry[]>("/admin/activity"),
-  getDashboard: () => api.get("/admin/dashboard"),
+  // Real-time statistics (GET /admin/stats)
+  getStats: () => api.get<AdminStats>("/admin/stats"),
+
+  // Students (GET /admin/students)
+  getStudents: () => api.get<{ students?: AdminStudentRecord[] } | AdminStudentRecord[]>("/admin/students"),
+
+  // Elections (GET /admin/elections)
+  getElections: () => api.get<{ elections?: AdminElectionRecord[] } | AdminElectionRecord[]>("/admin/elections"),
+
+  // Announcements (GET /admin/announcements)
+  getAnnouncements: () =>
+    api.get<{ announcements?: AdminAnnouncementRecord[] } | AdminAnnouncementRecord[]>("/admin/announcements"),
+
+  // Support issues (GET /admin/support — the backend does NOT serve /admin/issues)
+  getIssues: () => api.get<{ requests?: SupportRequestRecord[] } | SupportRequestRecord[]>("/admin/support"),
+
+  // Audit log (GET /admin/audit-logs)
+  getAuditLogs: () => api.get<{ logs: AuditLogRecord[] }>("/admin/audit-logs"),
+
+  // Student access requests
+  getAccessRequests: (status?: string) =>
+    api.get<{ requests: unknown[]; counts: Record<string, number> }>(
+      `/admin/access-requests${status ? `?status=${status}` : ""}`
+    ),
+
+  // Live election results (same read-only results service CAD uses)
+  getElectionResults: (electionId: number) => api.get(`/cad/elections/${electionId}/results`),
+  getMonitorElections: () => api.get<{ elections: Array<{ id: number; name: string; status: string }> }>("/cad/elections"),
 };

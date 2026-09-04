@@ -38,6 +38,8 @@ export function getDashboardRoute(role: UserRole): string {
       return "/candidate/dashboard";
     case "administrator":
       return "/admin/dashboard";
+    case "cad":
+      return "/cad/dashboard";
   }
 }
 
@@ -179,5 +181,7 @@ export function getRoleDescription(role: UserRole): string {
       return "Manage your candidate profile and election information.";
     case "administrator":
       return "Manage the election platform.";
+    case "cad":
+      return "Monitor the election in real time.";
   }
 }

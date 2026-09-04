@@ -12,7 +12,7 @@ export { studentApi } from "./students";
 export type { StudentProfile, NotificationSettings, ActiveSession } from "./students";
 
 export { adminApi } from "./admin";
-export type { AdminElection, AdminStudent, ScheduleEvent, Announcement, AdminIssue, ActivityLogEntry } from "./admin";
+export type { AdminElection, AdminStudent, ScheduleEvent, Announcement, AdminIssue, ActivityLogEntry } from "./admin-compat";
 
 export { notificationApi } from "./notifications";
 export type { Notification } from "./notifications";
