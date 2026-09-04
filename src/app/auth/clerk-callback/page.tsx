@@ -12,11 +12,16 @@ const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
 type BridgeStep = "checking" | "bridging" | "success" | "error";
 
-const PORTAL_ROLE_MAP: Record<string, string> = {
-  student: "STUDENT",
-  candidate: "CANDIDATE",
-  administrator: "ADMIN",
-  cad: "CAD",
+/**
+ * Roles each portal accepts. Candidates sign in as STUDENT too — applying
+ * candidates are students until an admin approves their application. The
+ * backend (not this check) enforces what each role may actually do.
+ */
+const PORTAL_ROLES_ALLOWED: Record<string, string[]> = {
+  student: ["STUDENT"],
+  candidate: ["CANDIDATE", "STUDENT"],
+  administrator: ["ADMIN"],
+  cad: ["CAD"],
 };
 
 /**
@@ -88,13 +93,14 @@ function ClerkCallbackInner() {
         }
 
         const dbRole = String(data.data?.user?.role || "").toUpperCase();
-        const portalExpects = PORTAL_ROLE_MAP[roleRaw];
 
         // Cross-role protection: portal must match the database role.
         // ADMIN may sign in from any portal (admins can do everything);
-        // everyone else must use their own portal.
+        // everyone else must be on a portal that accepts their role.
         const portalAllowed =
-          dbRole === "ADMIN" || portalExpects === dbRole || roleRaw === "any";
+          dbRole === "ADMIN" ||
+          roleRaw === "any" ||
+          (PORTAL_ROLES_ALLOWED[roleRaw] || []).includes(dbRole);
 
         if (!portalAllowed) {
           // Kill the just-created session — wrong portal.
@@ -132,7 +138,11 @@ function ClerkCallbackInner() {
           ADMIN: "/admin/dashboard",
           CAD: "/cad/dashboard",
         };
-        const dest = dashboards[dbRole] || "/student/dashboard";
+        let dest = dashboards[dbRole] || "/student/dashboard";
+        // A student who chose the candidate portal is here to apply
+        if (dbRole === "STUDENT" && roleRaw === "candidate") {
+          dest = "/candidate/apply";
+        }
         const needsRoll =
           (dbRole === "STUDENT" || dbRole === "CANDIDATE") &&
           !hasRollNumber(dbRole.toLowerCase(), primaryEmail);
