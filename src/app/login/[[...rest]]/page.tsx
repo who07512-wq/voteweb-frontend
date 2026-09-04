@@ -88,7 +88,7 @@ function LoginPageInner() {
       const csrfToken = csrfData.data?.csrfToken || "";
 
       // Send login OTP request
-      const res = await fetch(`${API_BASE}/otp/send-login`, {
+      const res = await fetch(`${API_BASE}/auth/otp/send-login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -173,7 +173,7 @@ function LoginPageInner() {
       const csrfToken = csrfData.data?.csrfToken || "";
 
       // Verify OTP and login
-      const res = await fetch(`${API_BASE}/otp/verify-login`, {
+      const res = await fetch(`${API_BASE}/auth/otp/verify-login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
