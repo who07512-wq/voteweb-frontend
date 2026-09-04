@@ -20,6 +20,8 @@ export interface VotingPosition {
   name: string;
   order: number;
   candidates: VotingCandidate[];
+  /** Real backend club id for the position (used when submitting the vote). */
+  clubId?: number;
 }
 
 export interface VotingElection {
@@ -54,5 +56,6 @@ export const MOCK_VOTING_ELECTION: VotingElection = {
 
 export type BallotSelection = {
   positionId: string;
-  candidateId: string | null; // null = abstain
+  // undefined = not answered yet, null = abstain
+  candidateId?: string | null;
 };

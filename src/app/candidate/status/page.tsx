@@ -6,11 +6,7 @@ import { CandidateLayout } from "@/components/candidate-dashboard/CandidateLayou
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import {
-  getApplicationByEmail,
-  POSITION_OPTIONS,
-} from "@/lib/candidate-application-store";
-import { getAuthCookie } from "@/lib/mock-auth";
+import { getMyApplication } from "@/lib/candidate-api";
 import {
   CheckCircle2,
   Clock,
@@ -19,13 +15,11 @@ import {
   FileText,
   Shield,
   AlertTriangle,
-  X,
   Send,
+  Lock,
 } from "lucide-react";
 
 export default function CandidateStatusPage() {
-  const [showSubmitModal, setShowSubmitModal] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [profile, setProfile] = useState({
     id: "",
     name: "",
@@ -39,12 +33,15 @@ export default function CandidateStatusPage() {
     adminNote: null as string | null,
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const status = profile.applicationStatus;
 
   useEffect(() => {
-    const auth = getAuthCookie();
-    if (auth?.email) {
-      getApplicationByEmail(auth.email).then((app) => {
+    let alive = true;
+    (async () => {
+      try {
+        const app = await getMyApplication();
+        if (!alive) return;
         if (app) {
           setProfile({
             id: app.id,
@@ -59,25 +56,16 @@ export default function CandidateStatusPage() {
             adminNote: app.adminNote,
           });
         }
-        setLoading(false);
-      }).catch(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
+      } catch {
+        if (alive) setError("Failed to load your application. Please try again.");
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
-
-  const handleSubmit = () => {
-    setIsSubmitting(true);
-    setTimeout(() => {
-      const newStatus = "under_review";
-      setProfile((prev) => ({
-        ...prev,
-        applicationStatus: newStatus,
-      }));
-      setIsSubmitting(false);
-      setShowSubmitModal(false);
-    }, 1500);
-  };
 
   const renderStatusCard = () => {
     switch (status) {
@@ -89,11 +77,17 @@ export default function CandidateStatusPage() {
                 <CheckCircle2 className="w-6 h-6 text-white" />
               </div>
               <div className="flex-1">
-                <h2 className="text-lg font-bold text-text-primary mb-1">
-                  Candidate Approved
-                </h2>
+                <div className="flex items-center gap-2 mb-1">
+                  <h2 className="text-lg font-bold text-text-primary">
+                    Candidate Approved
+                  </h2>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-success-100 text-success-700 text-xs font-medium">
+                    <Lock className="w-3 h-3" />
+                    Locked
+                  </span>
+                </div>
                 <p className="text-sm text-text-secondary mb-4">
-                  Your profile has been approved and published.
+                  Your profile has been approved and published. The application is now locked and cannot be edited.
                 </p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                   <div className="p-3 rounded-xl bg-white dark:bg-[#252540]">
@@ -149,11 +143,17 @@ export default function CandidateStatusPage() {
                 <Clock className="w-6 h-6 text-white" />
               </div>
               <div className="flex-1">
-                <h2 className="text-lg font-bold text-text-primary mb-1">
-                  Under Review
-                </h2>
+                <div className="flex items-center gap-2 mb-1">
+                  <h2 className="text-lg font-bold text-text-primary">
+                    Under Review
+                  </h2>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning-100 text-warning-700 text-xs font-medium">
+                    <Lock className="w-3 h-3" />
+                    Locked
+                  </span>
+                </div>
                 <p className="text-sm text-text-secondary mb-4">
-                  Your application has been submitted and is awaiting administration approval.
+                  Your application has been submitted and is awaiting administration approval. The application is now locked and cannot be edited.
                 </p>
                 <div className="flex gap-3">
                   <Link href="/candidate/preview">
@@ -263,6 +263,42 @@ export default function CandidateStatusPage() {
         );
     }
   };
+
+  if (loading) {
+    return (
+      <CandidateLayout>
+        <div className="min-h-[60vh] flex items-center justify-center">
+          <Card className="max-w-md w-full text-center p-8 border-border">
+            <div className="w-10 h-10 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-text-primary mb-2">
+              Loading Application
+            </h2>
+            <p className="text-sm text-text-secondary">
+              Fetching your application status…
+            </p>
+          </Card>
+        </div>
+      </CandidateLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <CandidateLayout>
+        <div className="min-h-[60vh] flex items-center justify-center">
+          <Card className="max-w-md w-full text-center p-8 border-border">
+            <div className="w-16 h-16 bg-error-50 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-8 h-8 text-error" />
+            </div>
+            <h2 className="text-xl font-bold text-text-primary mb-2">
+              Couldn&apos;t Load Application
+            </h2>
+            <p className="text-sm text-text-secondary mb-6">{error}</p>
+          </Card>
+        </div>
+      </CandidateLayout>
+    );
+  }
 
   return (
     <CandidateLayout>
@@ -415,53 +451,6 @@ export default function CandidateStatusPage() {
           </Link>
         </Card>
       </div>
-
-      {/* Submit Modal */}
-      {showSubmitModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() => setShowSubmitModal(false)}
-          />
-          <div className="relative bg-white dark:bg-[#252540] rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-text-primary">
-                Submit Application for Approval?
-              </h3>
-              <button
-                onClick={() => setShowSubmitModal(false)}
-                className="p-1 rounded-lg hover:bg-primary-50 transition-colors"
-              >
-                <X className="w-5 h-5 text-text-secondary" />
-              </button>
-            </div>
-            <p className="text-sm text-text-secondary">
-              After submission, verified information will be locked while election
-              administration reviews your application.
-            </p>
-            <div className="flex gap-3 pt-2">
-              <Button
-                variant="ghost"
-                size="md"
-                className="flex-1"
-                onClick={() => setShowSubmitModal(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="md"
-                className="flex-1"
-                onClick={handleSubmit}
-                isLoading={isSubmitting}
-                disabled={isSubmitting}
-              >
-                Submit
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </CandidateLayout>
   );
 }

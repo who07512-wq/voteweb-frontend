@@ -2,18 +2,18 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { ChevronDown, LogOut, Menu, Settings, Shield, User } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import NotificationBell from "@/components/ui/notification-bell";
-import { clearAuthCookie, getAuthCookie } from "@/lib/mock-auth";
+import { getAuthCookie } from "@/lib/mock-auth";
+import { useSignOut } from "@/hooks/useSignOut";
 
 export interface AdminNavbarProps {
   onToggleMenu: () => void;
 }
 
 export const AdminNavbar: React.FC<AdminNavbarProps> = ({ onToggleMenu }) => {
-  const router = useRouter();
+  const signOut = useSignOut();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [adminName, setAdminName] = useState("Admin");
 
@@ -96,8 +96,7 @@ export const AdminNavbar: React.FC<AdminNavbarProps> = ({ onToggleMenu }) => {
                   <button
                     onClick={() => {
                       setDropdownOpen(false);
-                      clearAuthCookie();
-                      router.push("/login");
+                      signOut();
                     }}
                     className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-error-600 hover:bg-error-50 transition-colors"
                   >

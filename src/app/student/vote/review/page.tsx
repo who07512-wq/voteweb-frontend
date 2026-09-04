@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { StudentLayout } from "@/components/layout/StudentLayout";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -10,42 +10,166 @@ import { BallotReview } from "@/components/voting/BallotReview";
 import { PrivacyNotice } from "@/components/voting/PrivacyNotice";
 import { ConfirmationModal } from "@/components/voting/ConfirmationModal";
 import { VotingProvider, useVoting } from "@/components/voting/VotingContext";
-import { getApprovedCandidatesAsVotingPositions } from "@/lib/candidate-application-store";
-import type { VotingPosition } from "@/lib/election-voting-data";
+import {
+  findOpenElection,
+  fetchBallot,
+  checkVoted,
+  castVote,
+  mapBallotToVotingPositions,
+} from "@/lib/voting-api";
+import type { VotingPosition, BallotSelection } from "@/lib/election-voting-data";
+import { AlertCircle } from "lucide-react";
 
 const STEPS = ["Select Candidates", "Review Ballot", "Confirm Vote"];
 
 function ReviewPageInner() {
   const router = useRouter();
-  const { selections } = useVoting();
+  const searchParams = useSearchParams();
+  const { selections, seedSelections, resetSelections } = useVoting();
+
   const [positions, setPositions] = useState<VotingPosition[]>([]);
+  const [electionId, setElectionId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
-    getApprovedCandidatesAsVotingPositions()
-      .then(setPositions)
-      .catch(() => setPositions([]))
-      .finally(() => setLoading(false));
-  }, []);
+    let alive = true;
+    (async () => {
+      try {
+        const queryElection = Number(searchParams?.get("election") || 0);
+        let election;
+        if (queryElection) {
+          const list = await findOpenElection().catch(() => null);
+          const match = list && list.id === queryElection ? list : null;
+          if (!match) {
+            // Fall back to whichever election is open.
+            election = list;
+          } else {
+            election = match;
+          }
+        } else {
+          election = await findOpenElection();
+        }
+
+        if (!alive) return;
+        if (!election) {
+          setLoadError("There is no election open for voting right now.");
+          setLoading(false);
+          return;
+        }
+
+        const ballot = await fetchBallot(election.id);
+        if (!alive) return;
+        const check = await checkVoted(election.id, ballot.map((p) => p.id));
+        if (!alive) return;
+
+        const remaining = check.voted.length > 0
+          ? ballot.filter((p) => !check.voted.includes(p.id))
+          : ballot;
+
+        if (remaining.length === 0) {
+          setLoadError("Your ballot for this election has already been submitted.");
+          setLoading(false);
+          return;
+        }
+
+        const uiPositions = mapBallotToVotingPositions(remaining);
+        setPositions(uiPositions);
+        seedSelections(uiPositions);
+        setElectionId(election.id);
+      } catch (err) {
+        if (!alive) return;
+        const status = (err as { status?: number })?.status;
+        if (status === 401) {
+          setLoadError("Please sign in to review and submit your ballot.");
+        } else {
+          setLoadError(
+            err instanceof Error ? err.message : "Failed to load your ballot."
+          );
+        }
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [searchParams, seedSelections]);
 
   const handleChangeSelection = () => {
-    router.push(`/student/vote`);
+    router.push("/student/vote");
   };
 
   const handleSubmit = () => {
+    setSubmitError(null);
     setShowModal(true);
   };
 
-  const handleConfirmSubmit = () => {
+  const handleConfirmSubmit = async () => {
+    if (electionId === null) return;
     setIsSubmitting(true);
-    setTimeout(() => {
+    setSubmitError(null);
+
+    const toSubmit = positions
+      .map((p) => ({ position: p, selection: selections.find((s) => s.positionId === p.id) }))
+      .filter(
+        (x): x is { position: VotingPosition; selection: BallotSelection & { candidateId: string } } =>
+          !!x.selection && typeof x.selection.candidateId === "string"
+      )
+      .map((x) => ({
+        position: x.position,
+        candidateId: Number(x.selection.candidateId),
+      }));
+
+    try {
+      for (const { position, candidateId } of toSubmit) {
+        if (!position.clubId) {
+          throw new Error("Position is missing club information.");
+        }
+        await castVote(electionId, position.clubId, Number(position.id), candidateId);
+      }
+    } catch (err) {
       setIsSubmitting(false);
       setShowModal(false);
-      router.push("/student/vote/success");
-    }, 2000);
+      const status = (err as { status?: number })?.status;
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Your vote could not be submitted. Please try again.";
+      setSubmitError(
+        status === 401
+          ? "Your session has expired. Please sign in again."
+          : status === 409
+            ? "You have already voted for one of these positions. Your ballot was not resubmitted."
+            : status === 403
+              ? "You are not eligible to vote in this election."
+              : message
+      );
+      return;
+    }
+
+    // All positions submitted - remember the result for the success screen.
+    try {
+      window.sessionStorage.setItem(
+        "campusvote_last_ballot",
+        JSON.stringify({
+          electionId,
+          submittedAt: new Date().toISOString(),
+          submittedPositions: toSubmit.length,
+        })
+      );
+    } catch {
+      // Non-fatal: success page falls back to the generic copy.
+    }
+
+    setIsSubmitting(false);
+    setShowModal(false);
+    resetSelections();
+    router.replace("/student/vote/success");
   };
 
   if (loading) {
@@ -53,6 +177,30 @@ function ReviewPageInner() {
       <StudentLayout>
         <div className="flex items-center justify-center h-64">
           <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </StudentLayout>
+    );
+  }
+
+  if (loadError || positions.length === 0) {
+    return (
+      <StudentLayout>
+        <div className="max-w-7xl mx-auto w-full space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold text-text-primary mb-1">Review Your Ballot</h1>
+          </div>
+          <Card className="p-12 text-center">
+            <AlertCircle className="w-10 h-10 text-warning mx-auto mb-4" />
+            <p className="text-text-secondary text-sm">{loadError || "No positions available."}</p>
+            <div className="flex gap-3 justify-center mt-6">
+              <Button variant="ghost" onClick={() => router.push("/student/vote")}>
+                Back to Voting
+              </Button>
+              <Button variant="primary" onClick={() => router.push("/student/dashboard")}>
+                Go to Dashboard
+              </Button>
+            </div>
+          </Card>
         </div>
       </StudentLayout>
     );
@@ -69,13 +217,16 @@ function ReviewPageInner() {
             </p>
           </div>
 
-          <VotingProgress
-            currentStep={1}
-            totalSteps={3}
-            steps={STEPS}
-          />
+          <VotingProgress currentStep={1} totalSteps={3} steps={STEPS} />
 
           <PrivacyNotice />
+
+          {submitError && (
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-error-50 border border-error/20">
+              <AlertCircle className="w-4 h-4 text-error shrink-0" />
+              <p className="text-xs text-error font-medium">{submitError}</p>
+            </div>
+          )}
 
           <BallotReview
             positions={positions}
@@ -110,7 +261,7 @@ function ReviewPageInner() {
               variant="primary"
               size="lg"
               className="flex-1 gap-2"
-              disabled={!isConfirmed}
+              disabled={!isConfirmed || isSubmitting}
               onClick={handleSubmit}
             >
               Confirm & Submit Vote

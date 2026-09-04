@@ -4,9 +4,8 @@ import React from "react";
 import { CandidateLayout } from "@/components/candidate-dashboard/CandidateLayout";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
-import { CheckCircle2, Shield, Eye } from "lucide-react";
-import { MOCK_CANDIDATE_PROFILE } from "@/lib/candidate-dashboard-data";
+import { CheckCircle2, Eye } from "lucide-react";
+import { useCandidateApplication } from "@/hooks/useCandidateApplication";
 
 function getStatusBadgeVariant(status: string) {
   switch (status) {
@@ -63,7 +62,42 @@ function getStatusDescription(status: string) {
 }
 
 export default function CandidateProfilePreviewPage() {
-  const profile = MOCK_CANDIDATE_PROFILE;
+  const { application, loading } = useCandidateApplication();
+
+  if (loading) {
+    return (
+      <CandidateLayout>
+        <div className="min-h-[60vh] flex items-center justify-center">
+          <div className="w-10 h-10 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+        </div>
+      </CandidateLayout>
+    );
+  }
+
+  const profile = application
+    ? {
+        name: application.name,
+        id: application.id,
+        position: application.position,
+        department: application.department,
+        year: application.year,
+        biography: application.bio,
+        manifesto: application.manifesto,
+        campaignLogo: application.photo,
+        applicationStatus: application.status,
+      }
+    : {
+        name: "Candidate",
+        id: "",
+        position: "",
+        department: "",
+        year: "",
+        biography: "",
+        manifesto: "",
+        campaignLogo: null as string | null,
+        applicationStatus: "draft",
+      };
+
   const initials = profile.name
     .split(" ")
     .map((n) => n[0])
@@ -122,20 +156,20 @@ export default function CandidateProfilePreviewPage() {
                 <h2 className="text-xl font-bold text-text-primary">
                   {profile.name}
                 </h2>
-                <Badge variant="info" className="mt-1">
-                  {profile.position}
-                </Badge>
+                {profile.position && (
+                  <Badge variant="info" className="mt-1">
+                    {profile.position}
+                  </Badge>
+                )}
                 <p className="text-sm text-text-secondary mt-2">
                   {profile.department} &middot; {profile.year}
                 </p>
-                {profile.verificationBadge && (
-                  <div className="flex items-center gap-1.5 mt-2">
-                    <CheckCircle2 className="w-4 h-4 text-success-500" />
-                    <span className="text-sm font-medium text-success-600">
-                      Verified
-                    </span>
-                  </div>
-                )}
+                <div className="flex items-center gap-1.5 mt-2">
+                  <CheckCircle2 className="w-4 h-4 text-success-500" />
+                  <span className="text-sm font-medium text-success-600">
+                    Verified
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -150,16 +184,6 @@ export default function CandidateProfilePreviewPage() {
                 />
               </div>
             )}
-
-            {/* Campaign Title & Description */}
-            <div className="mb-4">
-              <h3 className="text-lg font-bold text-text-primary">
-                {profile.campaignTitle}
-              </h3>
-              <p className="text-sm text-text-secondary mt-1 leading-relaxed">
-                {profile.campaignDescription}
-              </p>
-            </div>
           </div>
         </div>
 
@@ -169,7 +193,7 @@ export default function CandidateProfilePreviewPage() {
             About
           </h3>
           <p className="text-text-secondary leading-relaxed mt-4">
-            {profile.biography}
+            {profile.biography || "No biography submitted yet."}
           </p>
         </Card>
 
@@ -179,20 +203,10 @@ export default function CandidateProfilePreviewPage() {
             Manifesto
           </h3>
           <div className="mt-4 space-y-4">
-            {profile.manifesto.length > 0 ? (
-              profile.manifesto.map((section) => (
-                <div
-                  key={section.id}
-                  className="p-4 bg-primary-50 rounded-xl"
-                >
-                  <h4 className="font-medium text-primary-400 mb-2">
-                    {section.title}
-                  </h4>
-                  <p className="text-text-secondary text-sm leading-relaxed">
-                    {section.content}
-                  </p>
-                </div>
-              ))
+            {profile.manifesto ? (
+              <p className="text-text-secondary text-sm leading-relaxed whitespace-pre-wrap">
+                {profile.manifesto}
+              </p>
             ) : (
               <p className="text-text-secondary text-sm italic">
                 No manifesto available

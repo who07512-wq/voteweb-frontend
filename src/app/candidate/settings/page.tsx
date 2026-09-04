@@ -1,8 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import { CandidateLayout } from "@/components/candidate-dashboard/CandidateLayout"
+import { useSignOut } from "@/hooks/useSignOut"
 import { Card } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
 import { Badge } from "@/components/ui/Badge"
@@ -18,7 +18,7 @@ import {
 } from "lucide-react"
 
 export default function CandidateSettingsPage() {
-  const router = useRouter()
+  const signOut = useSignOut()
   const [activeTab, setActiveTab] = useState("notifications")
   const [showSignOutModal, setShowSignOutModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
@@ -52,7 +52,7 @@ export default function CandidateSettingsPage() {
 
   const handleSignOut = () => {
     setShowSignOutModal(false)
-    router.push("/login")
+    signOut()
   }
 
   const notificationOptions = [

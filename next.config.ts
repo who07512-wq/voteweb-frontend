@@ -43,6 +43,7 @@ const extraOrigins = (process.env.SERVER_ACTIONS_ALLOWED_ORIGINS ?? "")
   .filter(Boolean);
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ["127.0.0.1"],
   experimental: {
     serverActions: {
       // Keep the default strict check in production builds; only relax it for

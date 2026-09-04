@@ -1,18 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
 import { CandidateLayout } from "@/components/candidate-dashboard/CandidateLayout";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import {
   submitApplication,
-  POSITION_OPTIONS,
-  DEPARTMENT_OPTIONS,
-  YEAR_OPTIONS,
-  SECTION_OPTIONS,
-} from "@/lib/candidate-application-store";
+  listPositions,
+  type PositionOption,
+} from "@/lib/candidate-api";
+import { getRollNumber } from "@/lib/roll-number";
+
+const DEPARTMENT_OPTIONS = ["BBA", "BCA", "BCOM", "MBA", "MCA"];
+
+const YEAR_OPTIONS = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
+
+const SECTION_OPTIONS = ["A", "B", "C", "D", "E", "F"];
 import {
   User,
   GraduationCap,
@@ -34,12 +40,16 @@ interface FormData {
   department: string;
   year: string;
   section: string;
-  position: string;
+  positionId: string;
   email: string;
   phone: string;
   photo: string | null;
   bio: string;
   manifesto: string;
+  age: string;
+  dateOfBirth: string;
+  gender: string;
+  aadharNumber: string;
 }
 
 interface FormErrors {
@@ -52,21 +62,43 @@ const INITIAL_FORM: FormData = {
   department: "",
   year: "",
   section: "",
-  position: "",
+  positionId: "",
   email: "",
   phone: "",
   photo: null,
   bio: "",
   manifesto: "",
+  age: "",
+  dateOfBirth: "",
+  gender: "",
+  aadharNumber: "",
 };
 
 export default function CandidateApplyPage() {
   const router = useRouter();
+  const { user } = useUser();
+  const [positions, setPositions] = useState<PositionOption[]>([]);
+  const [positionsLoading, setPositionsLoading] = useState(true);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [formData, setFormData] = useState<FormData>(INITIAL_FORM);
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+
+  // Pre-fill from Clerk user (Google OAuth profile) and stored roll number
+  useEffect(() => {
+    if (!user) return;
+    const clerkName = [user.firstName, user.lastName].filter(Boolean).join(" ") || "";
+    const clerkEmail = user.primaryEmailAddress?.emailAddress || "";
+    const storedRoll = getRollNumber("candidate", clerkEmail);
+
+    setFormData((prev) => ({
+      ...prev,
+      name: prev.name || clerkName,
+      email: prev.email || clerkEmail,
+      enrollmentNumber: prev.enrollmentNumber || storedRoll || "",
+    }));
+  }, [user]);
 
   const handleChange = (field: keyof FormData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -109,7 +141,12 @@ export default function CandidateApplyPage() {
     if (!formData.department) newErrors.department = "Department is required";
     if (!formData.year) newErrors.year = "Year is required";
     if (!formData.section) newErrors.section = "Section is required";
-    if (!formData.position) newErrors.position = "Position is required";
+    if (!formData.positionId) newErrors.positionId = "Position is required";
+    if (!formData.age.trim()) newErrors.age = "Age is required";
+    if (!formData.dateOfBirth.trim()) newErrors.dateOfBirth = "Date of birth is required";
+    if (!formData.gender) newErrors.gender = "Gender is required";
+    if (!formData.aadharNumber.trim()) newErrors.aadharNumber = "Aadhar number is required";
+    else if (!/^\d{12}$/.test(formData.aadharNumber.replace(/\s/g, ""))) newErrors.aadharNumber = "Aadhar must be 12 digits";
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -157,26 +194,57 @@ export default function CandidateApplyPage() {
     else if (step === 2) setStep(1);
   };
 
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const list = await listPositions();
+        if (alive) setPositions(list);
+      } catch {
+        // positions stay empty -> form shows an error state below
+      } finally {
+        if (alive) setPositionsLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const positionName = positions.find(
+    (p) => String(p.id) === formData.positionId
+  )?.name;
+
   const handleSubmit = async () => {
     if (!validateStep3()) return;
+    if (!formData.positionId) {
+      setErrors({ positionId: "Position is required" });
+      return;
+    }
     setIsSubmitting(true);
     try {
       await submitApplication({
-        name: formData.name.trim(),
+        fullName: formData.name.trim(),
         enrollmentNumber: formData.enrollmentNumber.trim(),
         department: formData.department,
         year: formData.year,
         section: formData.section,
-        position: formData.position,
+        positionId: Number(formData.positionId),
         email: formData.email.trim(),
         phone: formData.phone.trim(),
-        photo: formData.photo,
+        profilePhotoUrl: formData.photo,
         bio: formData.bio.trim(),
         manifesto: formData.manifesto.trim(),
+        age: Number(formData.age),
+        dateOfBirth: formData.dateOfBirth,
+        gender: formData.gender,
+        aadharNumber: formData.aadharNumber.trim(),
       });
       setShowSuccess(true);
     } catch (err) {
-      setErrors({ general: "Failed to submit application. Please try again." });
+      const message =
+        err instanceof Error ? err.message : "Failed to submit application.";
+      setErrors({ general: message });
     } finally {
       setIsSubmitting(false);
     }
@@ -211,7 +279,7 @@ export default function CandidateApplyPage() {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-text-secondary">Position</span>
-                  <span className="font-medium text-text-primary">{formData.position}</span>
+                  <span className="font-medium text-text-primary">{positionName || "—"}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-text-secondary">Status</span>
@@ -302,10 +370,10 @@ export default function CandidateApplyPage() {
               </div>
             </div>
 
-            <div className="bg-info-50 border border-info-100 rounded-xl p-4 text-sm text-info-700">
+              <div className="bg-info-50 border border-info-100 rounded-xl p-4 text-sm text-info-700">
               <p className="font-medium">Important</p>
               <p className="mt-1 text-xs text-info-600">
-                Verified information (name, enrollment number, department, year, section, position) will be
+                Verified information (name, enrollment number, age, DOB, gender, Aadhar, department, year, section, position) will be
                 frozen after approval and cannot be changed.
               </p>
             </div>
@@ -424,19 +492,102 @@ export default function CandidateApplyPage() {
                     Position Contesting <span className="text-error-500">*</span>
                   </label>
                   <select
-                    value={formData.position}
-                    onChange={(e) => handleChange("position", e.target.value)}
+                    value={formData.positionId}
+                    onChange={(e) => handleChange("positionId", e.target.value)}
                     className={`w-full px-4 py-2.5 rounded-xl border text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                      errors.position ? "border-error-500" : "border-border"
+                      errors.positionId ? "border-error-500" : "border-border"
                     }`}
                   >
-                    <option value="">Select position</option>
-                    {POSITION_OPTIONS.map((p) => (
-                      <option key={p} value={p}>{p}</option>
+                    <option value="">
+                      {positionsLoading ? "Loading positions..." : "Select position"}
+                    </option>
+                    {positions.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
                   </select>
-                  {errors.position && (
-                    <p className="text-xs text-error-600 mt-1">{errors.position}</p>
+                  {errors.positionId && (
+                    <p className="text-xs text-error-600 mt-1">{errors.positionId}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1.5">
+                    Age <span className="text-error-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={16}
+                    max={30}
+                    value={formData.age}
+                    onChange={(e) => handleChange("age", e.target.value)}
+                    placeholder="As per 10th Certificate"
+                    className={`w-full px-4 py-2.5 rounded-xl border text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 ${
+                      errors.age ? "border-error-500" : "border-border"
+                    }`}
+                  />
+                  {errors.age && (
+                    <p className="text-xs text-error-600 mt-1">{errors.age}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1.5">
+                    Date of Birth <span className="text-error-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.dateOfBirth}
+                    onChange={(e) => handleChange("dateOfBirth", e.target.value)}
+                    className={`w-full px-4 py-2.5 rounded-xl border text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500 ${
+                      errors.dateOfBirth ? "border-error-500" : "border-border"
+                    }`}
+                  />
+                  {errors.dateOfBirth && (
+                    <p className="text-xs text-error-600 mt-1">{errors.dateOfBirth}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1.5">
+                    Gender <span className="text-error-500">*</span>
+                  </label>
+                  <select
+                    value={formData.gender}
+                    onChange={(e) => handleChange("gender", e.target.value)}
+                    className={`w-full px-4 py-2.5 rounded-xl border text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500 ${
+                      errors.gender ? "border-error-500" : "border-border"
+                    }`}
+                  >
+                    <option value="">Select gender</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                  {errors.gender && (
+                    <p className="text-xs text-error-600 mt-1">{errors.gender}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1.5">
+                    Aadhar Card Number <span className="text-error-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.aadharNumber}
+                    onChange={(e) => handleChange("aadharNumber", e.target.value)}
+                    placeholder="12-digit Aadhar number"
+                    maxLength={14}
+                    className={`w-full px-4 py-2.5 rounded-xl border text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 ${
+                      errors.aadharNumber ? "border-error-500" : "border-border"
+                    }`}
+                  />
+                  {errors.aadharNumber && (
+                    <p className="text-xs text-error-600 mt-1">{errors.aadharNumber}</p>
                   )}
                 </div>
               </div>
@@ -639,6 +790,13 @@ export default function CandidateApplyPage() {
                 </p>
               </div>
             </div>
+
+            {errors.general && (
+              <div className="p-3 rounded-xl bg-error-50 border border-error/20 text-sm text-error-600 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{errors.general}</span>
+              </div>
+            )}
 
             {/* Submit */}
             <div className="flex justify-between pt-4 border-t border-border">

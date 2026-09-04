@@ -5,8 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { CandidateSidebar } from "./CandidateSidebar";
 import { CandidateNavbar } from "./CandidateNavbar";
 import { MobileNav } from "@/components/layout/MobileNav";
-import { getAuthCookie } from "@/lib/mock-auth";
-import { getApplicationByEmail } from "@/lib/candidate-application-store";
+import { getMyApplication } from "@/lib/candidate-api";
 import type { ApplicationStatus } from "@/lib/candidate-dashboard-data";
 
 export interface CandidateLayoutProps {
@@ -29,9 +28,7 @@ function canAccessRoute(pathname: string, status: ApplicationStatus): boolean {
   if (status === "approved") return true;
 
   if (pathname.startsWith("/candidate/status")) return true;
-  if (pathname.startsWith("/candidate/apply")) {
-    return status === "draft" || status === "changes_requested";
-  }
+  if (pathname.startsWith("/candidate/apply")) return true;
 
   return !PROTECTED_ROUTES.some((r) => pathname.startsWith(r));
 }
@@ -50,47 +47,41 @@ export const CandidateLayout: React.FC<CandidateLayoutProps> = ({
   const router = useRouter();
 
   useEffect(() => {
-    const auth = getAuthCookie();
-    let foundName = false;
-    let foundId = false;
-
-    if (auth?.email) {
-      getApplicationByEmail(auth.email).then((app) => {
-        if (app) {
-          setUserName(app.name);
-          setUserId(app.id);
-          setStatus(app.status);
-          foundName = true;
-          foundId = true;
+    let alive = true;
+    (async () => {
+      let currentStatus: ApplicationStatus = "draft";
+      try {
+        const app = await getMyApplication();
+        if (alive) {
+          if (app) {
+            setUserName(app.name || "Candidate");
+            setUserId(app.id);
+            currentStatus = app.status;
+          } else {
+            setUserName("Candidate");
+            setUserId("");
+          }
         }
-      });
-    }
-
-    if (!foundName) {
-      setUserName("Candidate");
-    }
-    if (!foundId) {
-      setUserId("");
-    }
-
-    let currentStatus: ApplicationStatus = "draft";
-
-    try {
-      const stored = localStorage.getItem("campusvote_application_status");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.status) currentStatus = parsed.status;
+      } catch {
+        if (alive) {
+          setUserName("Candidate");
+          setUserId("");
+        }
       }
-    } catch {}
 
-    setStatus(currentStatus);
+      if (!alive) return;
+      setStatus(currentStatus);
 
-    if (!canAccessRoute(pathname, currentStatus)) {
-      router.replace("/candidate/status");
-      return;
-    }
+      if (!canAccessRoute(pathname, currentStatus)) {
+        router.replace("/candidate/status");
+        return;
+      }
 
-    setChecking(false);
+      setChecking(false);
+    })();
+    return () => {
+      alive = false;
+    };
   }, [pathname, router]);
 
   if (checking) {

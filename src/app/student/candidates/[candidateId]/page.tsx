@@ -1,13 +1,13 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { User, Settings, Scale, Download, FileText, CheckCircle2 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { Candidate, CANDIDATES } from "@/lib/candidate-data";
+import { User, Settings, Scale, Download, FileText, CheckCircle2, Loader2 } from "lucide-react";
+import { getCandidate } from "@/lib/candidates-api";
+import type { Candidate } from "@/lib/candidate-data";
 import { useParams, useRouter } from "next/navigation";
 import { StudentLayout } from "@/components/layout/StudentLayout";
 
@@ -15,19 +15,46 @@ export default function CandidateProfilePage() {
   const { candidateId } = useParams<{ candidateId: string }>();
   const router = useRouter();
 
-  const candidate = CANDIDATES.find((c) => c.id === candidateId);
+  const [candidate, setCandidate] = useState<Candidate | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
 
-  if (!candidate) {
+  useEffect(() => {
+    let alive = true;
+    getCandidate(candidateId || "").then((result) => {
+      if (!alive) return;
+      setCandidate(result);
+      setNotFound(!result);
+      setLoading(false);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [candidateId]);
+
+  if (loading) {
     return (
-      <div className="p-8 text-center">
-        <h1 className="text-xl font-bold text-text-primary">Candidate Not Found</h1>
-        <p className="text-text-secondary">The candidate profile you requested does not exist.</p>
-        <Link href="/student/candidates">
-          <button className="px-4 py-2 rounded-xl border border-border text-sm text-text-primary hover:bg-primary-50 transition-colors">
-            Back to Candidates
-          </button>
-        </Link>
-      </div>
+      <StudentLayout>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+        </div>
+      </StudentLayout>
+    );
+  }
+
+  if (notFound || !candidate) {
+    return (
+      <StudentLayout>
+        <div className="p-8 text-center">
+          <h1 className="text-xl font-bold text-text-primary">Candidate Not Found</h1>
+          <p className="text-text-secondary">The candidate profile you requested does not exist.</p>
+          <Link href="/student/candidates">
+            <button className="px-4 py-2 rounded-xl border border-border text-sm text-text-primary hover:bg-primary-50 transition-colors">
+              Back to Candidates
+            </button>
+          </Link>
+        </div>
+      </StudentLayout>
     );
   }
 
@@ -50,7 +77,7 @@ export default function CandidateProfilePage() {
                   <div
                     className="w-14 h-14 rounded-xl bg-primary-600 flex items-center justify-center font-bold text-white text-base"
                   >
-                    {candidate.name.split(" ")[0][0]}{candidate.name.split(" ")[1][0]}
+                    {candidate.name.split(" ")[0][0]}{candidate.name.split(" ")[1]?.[0] || ""}
                   </div>
                   <div>
                     <h2 className="font-bold text-text-primary">{candidate.name}</h2>
@@ -63,7 +90,9 @@ export default function CandidateProfilePage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <Badge variant="success" className="text-[10px]">✓ Verified Profile</Badge>
                   <Badge variant="neutral" className="text-[10px]">{candidate.id}</Badge>
-                  <span className="text-xs text-text-secondary">{candidate.department} • {candidate.year}</span>
+                  {candidate.department && (
+                    <span className="text-xs text-text-secondary">{candidate.department}</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <Link href="/student/candidates">
@@ -81,7 +110,9 @@ export default function CandidateProfilePage() {
               <h2 className="text-xl font-bold text-text-primary border-b border-border pb-3">
                 About the Candidate
               </h2>
-              <p className="text-text-secondary leading-relaxed">{candidate.biography}</p>
+              <p className="text-text-secondary leading-relaxed">
+                {candidate.biography || "No biography provided."}
+              </p>
             </div>
           </div>
 
@@ -97,32 +128,40 @@ export default function CandidateProfilePage() {
                   </h2>
                 </div>
 
-                <div className="prose mt-4">
-                  {candidate.manifestos.map((section, index) => (
-                    <div key={index} className="mb-5 p-4 bg-primary-50 rounded-xl">
-                      <h3 className="font-medium text-primary-400 mb-2">{section.title}</h3>
-                      <p className="text-text-secondary">{section.content}</p>
-                    </div>
-                  ))}
-                </div>
+                {candidate.manifestos.length > 0 ? (
+                  <div className="prose mt-4">
+                    {candidate.manifestos.map((section, index) => (
+                      <div key={index} className="mb-5 p-4 bg-primary-50 rounded-xl">
+                        <h3 className="font-medium text-primary-400 mb-2">{section.title}</h3>
+                        <p className="text-text-secondary">{section.content}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-4 bg-primary-50 rounded-xl">
+                    <p className="text-text-secondary">No manifesto has been published for this candidate.</p>
+                  </div>
+                )}
 
-                <div className="mt-4 flex flex-wrap gap-3">
-                  <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => document.querySelector('.prose')?.scrollIntoView({ behavior: 'smooth' })}>
-                    <FileText className="w-3.5 h-3.5" />View Full Manifesto
-                  </Button>
-                  <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => {
-                    const text = candidate.manifestos.map(s => `${s.title}\n\n${s.content}`).join('\n\n---\n\n');
-                    const blob = new Blob([`${candidate.name} - Manifesto\n\n${text}`], { type: 'text/plain' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `${candidate.name.replace(/\s+/g, '_')}_manifesto.txt`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  }}>
-                    <Download className="w-3.5 h-3.5" />Download Manifesto
-                  </Button>
-                </div>
+                {candidate.manifestos.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => document.querySelector('.prose')?.scrollIntoView({ behavior: 'smooth' })}>
+                      <FileText className="w-3.5 h-3.5" />View Full Manifesto
+                    </Button>
+                    <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => {
+                      const text = candidate.manifestos.map(s => `${s.title}\n\n${s.content}`).join('\n\n---\n\n');
+                      const blob = new Blob([`${candidate.name} - Manifesto\n\n${text}`], { type: 'text/plain' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `${candidate.name.replace(/\s+/g, '_')}_manifesto.txt`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}>
+                      <Download className="w-3.5 h-3.5" />Download Manifesto
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -133,17 +172,12 @@ export default function CandidateProfilePage() {
                 <div className="space-y-3">
                   <div className="flex justify-between text-sm"><span className="text-text-secondary">Candidate ID</span><span className="font-medium text-text-primary font-mono">{candidate.id}</span></div>
                   <div className="flex justify-between text-sm"><span className="text-text-secondary">Position</span><span className="font-medium text-text-primary">{candidate.position}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-text-secondary">Department</span><span className="font-medium text-text-primary">{candidate.department}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-text-secondary">Year</span><span className="font-medium text-text-primary">{candidate.year}</span></div>
+                  {candidate.department && (
+                    <div className="flex justify-between text-sm"><span className="text-text-secondary">Club</span><span className="font-medium text-text-primary">{candidate.department}</span></div>
+                  )}
                   <div className="flex justify-between text-sm"><span className="text-text-secondary">Election</span><span className="font-medium text-text-primary">Student Council Election 2026</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-text-secondary">Profile Status</span><Badge variant={candidate.verified ? "success" : "warning"} className="text-[10px]">{candidate.verified ? "Verified" : "Pending"}</Badge></div>
+                  <div className="flex justify-between text-sm"><span className="text-text-secondary">Profile Status</span><Badge variant="success" className="text-[10px]">Verified</Badge></div>
                 </div>
-              </Card>
-
-              <Card className="p-5 text-center">
-                <h3 className="font-bold text-text-primary mb-3 border-b border-border pb-3">Campaign Symbol</h3>
-                <div className="w-16 h-16 rounded-xl bg-primary-100 flex items-center justify-center mx-auto text-3xl">{candidate.campaignSymbol}</div>
-                <p className="text-xs text-text-secondary mt-2">Unique campaign identifier</p>
               </Card>
 
               <div className="space-y-2">

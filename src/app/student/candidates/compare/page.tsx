@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useMemo, Suspense } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Scale, CheckCircle2, ArrowLeft } from "lucide-react";
-import { CANDIDATES } from "@/lib/candidate-data";
+import { Scale, CheckCircle2, ArrowLeft, Loader2 } from "lucide-react";
+import { getCandidatesByIds } from "@/lib/candidates-api";
+import type { Candidate } from "@/lib/candidate-data";
 import { useSearchParams } from "next/navigation";
 import { StudentLayout } from "@/components/layout/StudentLayout";
 
@@ -14,10 +15,32 @@ function CompareContent() {
   const idsParam = searchParams.get("ids") || "";
   const selectedIds = idsParam.split(",").filter(Boolean);
 
-  const candidates = useMemo(
-    () => CANDIDATES.filter((c) => selectedIds.includes(c.id)),
-    [selectedIds]
-  );
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    getCandidatesByIds(selectedIds).then((data) => {
+      if (!alive) return;
+      setCandidates(data);
+      setLoading(false);
+    });
+    return () => {
+      alive = false;
+    };
+    // selectedIds is derived from idsParam
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsParam]);
+
+  if (loading) {
+    return (
+      <StudentLayout>
+        <main className="flex-1 p-8 flex items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+        </main>
+      </StudentLayout>
+    );
+  }
 
   if (candidates.length === 0) {
     return (

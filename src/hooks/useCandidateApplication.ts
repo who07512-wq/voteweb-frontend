@@ -1,34 +1,39 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getAuthCookie } from "@/lib/mock-auth";
-import { getApplicationByEmail } from "@/lib/candidate-application-store";
-import type { CandidateApplicationData } from "@/lib/candidate-application-store";
+import {
+  getMyApplication,
+  type CandidateApplicationData,
+} from "@/lib/candidate-api";
 
 export function useCandidateApplication() {
   const [application, setApplication] = useState<CandidateApplicationData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const auth = getAuthCookie();
-    if (auth?.email) {
-      getApplicationByEmail(auth.email).then((app) => {
-        setApplication(app || null);
-        setLoading(false);
-      }).catch(() => {
-        setApplication(null);
-        setLoading(false);
-      });
-    } else {
-      setLoading(false);
-    }
+    let alive = true;
+    (async () => {
+      try {
+        const app = await getMyApplication();
+        if (alive) setApplication(app);
+      } catch {
+        if (alive) setApplication(null);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   return { application, loading };
 }
 
-export function getCandidateApplication(): Promise<CandidateApplicationData | null> {
-  const auth = typeof window !== "undefined" ? getAuthCookie() : null;
-  if (!auth?.email) return Promise.resolve(null);
-  return getApplicationByEmail(auth.email).then((app) => app || null);
+export async function getCandidateApplication(): Promise<CandidateApplicationData | null> {
+  try {
+    return await getMyApplication();
+  } catch {
+    return null;
+  }
 }

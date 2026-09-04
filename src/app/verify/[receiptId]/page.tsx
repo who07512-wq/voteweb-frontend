@@ -1,18 +1,50 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { CampusVoteLogo } from "@/components/auth/CampusVoteLogo";
-import { CheckCircle2, XCircle, ArrowLeft, Shield } from "lucide-react";
-import { verifyReceipt } from "@/lib/receipt-data";
+import { CheckCircle2, XCircle, ArrowLeft, Shield, Loader2 } from "lucide-react";
+import { verifyReceiptPublic, type PublicReceipt } from "@/lib/voting-api";
+
+type VerifyState =
+  | { phase: "loading" }
+  | { phase: "valid"; receipt: PublicReceipt }
+  | { phase: "invalid" };
 
 export default function VerifyPage() {
   const { receiptId } = useParams<{ receiptId: string }>();
-  const receipt = verifyReceipt(receiptId || "");
+  const [state, setState] = useState<VerifyState>({ phase: "loading" });
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const result = await verifyReceiptPublic(receiptId || "");
+      if (!alive) return;
+      setState(
+        result.valid && result.receipt
+          ? { phase: "valid", receipt: result.receipt }
+          : { phase: "invalid" }
+      );
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [receiptId]);
+
+  const submittedLabel = state.phase === "valid"
+    ? state.receipt.votedAt
+      ? new Date(state.receipt.votedAt).toLocaleString("en-GB", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : ""
+    : "";
 
   return (
     <div className="min-h-screen bg-bg-primary flex flex-col">
@@ -38,7 +70,14 @@ export default function VerifyPage() {
             </p>
           </div>
 
-          {receipt ? (
+          {state.phase === "loading" && (
+            <Card className="p-6 border-border text-center">
+              <Loader2 size={32} className="animate-spin text-primary-600 mx-auto mb-4" />
+              <p className="text-sm text-text-secondary">Verifying receipt...</p>
+            </Card>
+          )}
+
+          {state.phase === "valid" && (
             <>
               {/* Valid Receipt */}
               <Card className="p-6 border-border text-center">
@@ -56,12 +95,14 @@ export default function VerifyPage() {
                   <div className="flex justify-between text-sm">
                     <span className="text-text-secondary">Receipt ID</span>
                     <span className="font-mono font-medium text-text-primary">
-                      {receipt.receiptId}
+                      {state.receipt.receiptId ?? "—"}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-text-secondary">Election</span>
-                    <span className="text-text-primary">{receipt.electionName}</span>
+                    <span className="text-text-primary">
+                      {state.receipt.electionName || "—"}
+                    </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-text-secondary">Status</span>
@@ -69,10 +110,12 @@ export default function VerifyPage() {
                       Ballot Recorded
                     </Badge>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-text-secondary">Submitted</span>
-                    <span className="text-text-primary">{receipt.submittedDate}</span>
-                  </div>
+                  {submittedLabel && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-text-secondary">Submitted</span>
+                      <span className="text-text-primary">{submittedLabel}</span>
+                    </div>
+                  )}
                 </div>
               </Card>
 
@@ -91,8 +134,9 @@ export default function VerifyPage() {
                 </div>
               </Card>
             </>
-          ) : (
-            /* Invalid Receipt */
+          )}
+
+          {state.phase === "invalid" && (
             <Card className="p-6 border-border text-center">
               <div className="w-16 h-16 rounded-full bg-error-50 flex items-center justify-center mx-auto mb-4">
                 <XCircle className="w-8 h-8 text-error" />

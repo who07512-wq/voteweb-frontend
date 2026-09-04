@@ -6,17 +6,17 @@ import { CheckCircle2, FileCheck2, ShieldCheck } from "lucide-react";
 export const AuthBranding: React.FC = () => {
   const features = [
     {
-      icon: <ShieldCheck className="w-5 h-5" />,
+      icon: <ShieldCheck className="w-5 h-5 text-white" />,
       title: "Secure & Anonymous",
       description: "Your vote is encrypted and never linked to your identity.",
     },
     {
-      icon: <FileCheck2 className="w-5 h-5" />,
+      icon: <FileCheck2 className="w-5 h-5 text-white" />,
       title: "Transparent & Verifiable",
       description: "Independent cryptographic receipts confirm your ballot.",
     },
     {
-      icon: <CheckCircle2 className="w-5 h-5" />,
+      icon: <CheckCircle2 className="w-5 h-5 text-white" />,
       title: "Trusted & Neutral",
       description: "A fair election process for all students.",
     },

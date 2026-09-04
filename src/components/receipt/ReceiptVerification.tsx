@@ -5,30 +5,52 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Search, CheckCircle2, XCircle, Loader2 } from "lucide-react";
-import { VoteReceipt, verifyReceipt } from "@/lib/receipt-data";
+import { verifyReceiptPublic } from "@/lib/voting-api";
+
+interface VerificationResult {
+  receiptId: string;
+  electionName: string;
+  submittedAt: string;
+}
+
+function formatVotedAt(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export const ReceiptVerification: React.FC = () => {
   const [inputId, setInputId] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
-  const [result, setResult] = useState<VoteReceipt | null>(null);
+  const [result, setResult] = useState<VerificationResult | null>(null);
   const [error, setError] = useState(false);
 
-  const handleVerify = () => {
-    if (!inputId.trim()) return;
+  const handleVerify = async () => {
+    const trimmed = inputId.trim();
+    if (!trimmed) return;
 
     setIsVerifying(true);
     setResult(null);
     setError(false);
 
-    setTimeout(() => {
-      const receipt = verifyReceipt(inputId.trim());
-      if (receipt) {
-        setResult(receipt);
-      } else {
-        setError(true);
-      }
-      setIsVerifying(false);
-    }, 1500);
+    const res = await verifyReceiptPublic(trimmed);
+    if (res.valid && res.receipt) {
+      setResult({
+        receiptId: res.receipt.receiptId != null ? String(res.receipt.receiptId) : trimmed,
+        electionName: res.receipt.electionName || "the election",
+        submittedAt: formatVotedAt(res.receipt.votedAt),
+      });
+    } else {
+      setError(true);
+    }
+    setIsVerifying(false);
   };
 
   return (

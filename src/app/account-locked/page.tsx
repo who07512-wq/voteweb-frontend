@@ -11,7 +11,7 @@ export default function AccountLockedPage() {
     <AuthLayout>
       <LockedAccountState
         onTryAgain={() => router.push("/login")}
-        onContactSupport={() => router.push("/help")}
+        onContactSupport={() => router.push("/student/help")}
       />
     </AuthLayout>
   );

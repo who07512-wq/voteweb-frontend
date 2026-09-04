@@ -1,103 +1,131 @@
 "use client";
 
 import React, { useState, useCallback, useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { StudentLayout } from "@/components/layout/StudentLayout";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { VotingProgress } from "@/components/voting/VotingProgress";
-import { ElectionInfoCard } from "@/components/voting/ElectionInfoCard";
 import { CandidateVotingCard } from "@/components/voting/CandidateVotingCard";
 import { AbstainOption } from "@/components/voting/AbstainOption";
 import { VotingNavigation } from "@/components/voting/VotingNavigation";
-import { LeaveVotingModal } from "@/components/voting/LeaveVotingModal";
-import {
-  VotingClosedState,
-  NotEligibleState,
-  AlreadyVotedState,
-} from "@/components/voting/VotingStates";
 import { VotingProvider, useVoting } from "@/components/voting/VotingContext";
-import { getApprovedCandidatesAsVotingPositions } from "@/lib/candidate-application-store";
+import { AlreadyVotedState, VotingClosedState } from "@/components/voting/VotingStates";
+import {
+  findOpenElection,
+  fetchBallot,
+  checkVoted,
+  mapBallotToVotingPositions,
+} from "@/lib/voting-api";
 import type { VotingPosition } from "@/lib/election-voting-data";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, AlertCircle } from "lucide-react";
 
 const STEPS = ["Select Candidates", "Review Ballot", "Confirm Vote"];
 
+type PageState =
+  | { phase: "loading" }
+  | { phase: "error"; message: string }
+  | { phase: "noauth" }
+  | { phase: "closed" }
+  | { phase: "already" }
+  | { phase: "ready"; electionId: number; electionName: string };
+
 function VotePageInner() {
   const router = useRouter();
-  const { selections, setCandidate, setAbstain, getSelection } = useVoting();
+  const { setCandidate, setAbstain, getSelection, seedSelections } = useVoting();
 
+  const [state, setState] = useState<PageState>({ phase: "loading" });
   const [positions, setPositions] = useState<VotingPosition[]>([]);
-  const [loading, setLoading] = useState(true);
   const [currentPosition, setCurrentPosition] = useState(0);
-  const [showLeaveModal, setShowLeaveModal] = useState(false);
-  const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
 
   useEffect(() => {
-    getApprovedCandidatesAsVotingPositions()
-      .then(setPositions)
-      .catch(() => setPositions([]))
-      .finally(() => setLoading(false));
-  }, []);
+    let alive = true;
+    (async () => {
+      try {
+        const election = await findOpenElection();
+        if (!alive) return;
+        if (!election) {
+          setState({ phase: "closed" });
+          return;
+        }
+
+        const ballot = await fetchBallot(election.id);
+        if (!alive) return;
+        if (ballot.length === 0) {
+          setState({ phase: "error", message: "No voting positions are available for this election yet." });
+          return;
+        }
+
+        // Ask the backend which of these positions the student already voted.
+        const check = await checkVoted(election.id, ballot.map((p) => p.id));
+        if (!alive) return;
+
+        const remaining = check.voted.length > 0
+          ? ballot.filter((p) => !check.voted.includes(p.id))
+          : ballot;
+
+        if (remaining.length === 0) {
+          setState({ phase: "already" });
+          return;
+        }
+
+        const uiPositions = mapBallotToVotingPositions(remaining);
+        setPositions(uiPositions);
+        seedSelections(uiPositions);
+        setState({ phase: "ready", electionId: election.id, electionName: election.name });
+      } catch (err) {
+        if (!alive) return;
+        const status = (err as { status?: number })?.status;
+        if (status === 401) {
+          setState({ phase: "noauth" });
+        } else {
+          const message =
+            err instanceof Error ? err.message : "Failed to load the ballot. Please try again.";
+          setState({ phase: "error", message });
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [seedSelections]);
 
   const currentPositionData = positions[currentPosition];
-  const currentSelection = getSelection(currentPositionData?.id);
-  const hasSelection =
-    currentSelection?.candidateId !== undefined &&
-    currentSelection?.candidateId !== null;
+  const currentSelection = currentPositionData
+    ? getSelection(currentPositionData.id)
+    : undefined;
 
   const handleSelectCandidate = useCallback(
     (candidateId: string) => {
-      setCandidate(currentPositionData?.id, candidateId);
+      if (!currentPositionData) return;
+      setCandidate(currentPositionData.id, candidateId);
     },
-    [currentPositionData?.id, setCandidate]
+    [currentPositionData, setCandidate]
   );
 
   const handleAbstain = useCallback(() => {
-    setAbstain(currentPositionData?.id);
-  }, [currentPositionData?.id, setAbstain]);
+    if (!currentPositionData) return;
+    setAbstain(currentPositionData.id);
+  }, [currentPositionData, setAbstain]);
 
   const handlePrevious = useCallback(() => {
-    if (currentPosition > 0) {
-      setCurrentPosition((prev) => prev - 1);
-    }
-  }, [currentPosition]);
+    setCurrentPosition((prev) => Math.max(0, prev - 1));
+  }, []);
 
   const handleNext = useCallback(() => {
-    if (!hasSelection && currentSelection?.candidateId === undefined) return;
+    if (!currentSelection) return;
+    if (currentSelection.candidateId === undefined) return;
 
     if (currentPosition < positions.length - 1) {
       setCurrentPosition((prev) => prev + 1);
-    } else {
-      router.push("/student/vote/review");
+    } else if (state.phase === "ready") {
+      router.push(`/student/vote/review?election=${state.electionId}`);
     }
-  }, [currentPosition, positions.length, hasSelection, currentSelection?.candidateId, router]);
+  }, [currentSelection, currentPosition, positions.length, router, state]);
 
-  const handleLeave = useCallback(() => {
-    setShowLeaveModal(false);
-    if (pendingNavigation) {
-      router.push(pendingNavigation);
-    } else {
-      router.push("/student/dashboard");
-    }
-  }, [pendingNavigation, router]);
-
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      const hasAnySelection = selections.some(
-        (s) => s.candidateId !== undefined
-      );
-      if (hasAnySelection) {
-        e.preventDefault();
-        e.returnValue = "";
-      }
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [selections]);
-
-  if (loading) {
+  if (state.phase === "loading") {
     return (
       <StudentLayout>
         <div className="flex items-center justify-center h-64">
@@ -107,74 +135,102 @@ function VotePageInner() {
     );
   }
 
-  if (positions.length === 0) {
+  if (state.phase === "noauth") {
     return (
       <StudentLayout>
         <div className="max-w-7xl mx-auto w-full space-y-6">
-          <div>
-            <h1 className="text-2xl font-bold text-text-primary mb-1">Cast Your Vote</h1>
-            <p className="text-sm text-text-secondary">No positions available for voting yet.</p>
-          </div>
           <Card className="p-12 text-center">
-            <p className="text-text-secondary">Voting positions will appear here once candidates are approved.</p>
+            <AlertCircle className="w-10 h-10 text-warning mx-auto mb-4" />
+            <h2 className="text-lg font-bold text-text-primary mb-1">Sign in Required</h2>
+            <p className="text-sm text-text-secondary mb-6">
+              Please sign in to access the ballot.
+            </p>
+            <Link href="/login">
+              <Button variant="primary">Sign In</Button>
+            </Link>
           </Card>
         </div>
       </StudentLayout>
     );
   }
 
-  return (
-    <>
-    <StudentLayout>
+  if (state.phase === "error") {
+    return (
+      <StudentLayout>
         <div className="max-w-7xl mx-auto w-full space-y-6">
           <div>
-            <div className="flex flex-wrap items-center gap-2 mb-3">
-              <Badge variant="info" className="text-[10px]">Student Council Election 2026</Badge>
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
-                <span className="text-xs font-medium text-success">Voting Open</span>
-              </div>
-            </div>
             <h1 className="text-2xl font-bold text-text-primary mb-1">Cast Your Vote</h1>
-            <p className="text-sm text-text-secondary">
-              Select one candidate for each available position. Review your ballot carefully before submitting.
-            </p>
           </div>
+          <Card className="p-12 text-center">
+            <AlertCircle className="w-10 h-10 text-error mx-auto mb-4" />
+            <p className="text-text-secondary text-sm">{state.message}</p>
+          </Card>
+        </div>
+      </StudentLayout>
+    );
+  }
 
-          <div className="flex items-center gap-2 p-3 rounded-xl bg-warning-50 border border-warning/20">
-            <AlertTriangle className="w-4 h-4 text-warning shrink-0" />
-            <p className="text-xs text-warning font-medium">
-              Your vote cannot be changed after submission.
-            </p>
-          </div>
+  if (state.phase === "closed") {
+    return <VotingClosedState />;
+  }
 
-          <VotingProgress
-            currentStep={0}
-            totalSteps={3}
-            steps={STEPS}
-          />
+  if (state.phase === "already") {
+    return <AlreadyVotedState />;
+  }
 
-          <Card className="border-border overflow-hidden">
-            <div className="p-4 sm:p-5 border-b border-border bg-primary-50/50">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] font-medium text-text-secondary uppercase tracking-wider">
-                    Position {currentPosition + 1} of {positions.length}
-                  </span>
-                  <h2 className="text-lg font-bold text-text-primary mt-1">
-                    {currentPositionData.name}
-                  </h2>
-                </div>
-                <Badge variant="info" className="text-[10px]">
-                  {currentPosition + 1} / {positions.length}
-                </Badge>
-              </div>
-              <p className="text-xs text-text-secondary mt-2">
-                Select one candidate.
-              </p>
+  // ===== ready =====
+  if (!currentPositionData) return null;
+
+  return (
+    <StudentLayout>
+      <div className="max-w-7xl mx-auto w-full space-y-6">
+        <div>
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <Badge variant="info" className="text-[10px]">{state.electionName}</Badge>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
+              <span className="text-xs font-medium text-success">Voting Open</span>
             </div>
+          </div>
+          <h1 className="text-2xl font-bold text-text-primary mb-1">Cast Your Vote</h1>
+          <p className="text-sm text-text-secondary">
+            Select one candidate for each available position. Review your ballot carefully before submitting.
+          </p>
+        </div>
 
-            <div className="p-4 sm:p-5 space-y-3">
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-warning-50 border border-warning/20">
+          <AlertTriangle className="w-4 h-4 text-warning shrink-0" />
+          <p className="text-xs text-warning font-medium">
+            Your vote cannot be changed after submission.
+          </p>
+        </div>
+
+        <VotingProgress currentStep={0} totalSteps={3} steps={STEPS} />
+
+        <Card className="border-border overflow-hidden">
+          <div className="p-4 sm:p-5 border-b border-border bg-primary-50/50">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-medium text-text-secondary uppercase tracking-wider">
+                  Position {currentPosition + 1} of {positions.length}
+                </span>
+                <h2 className="text-lg font-bold text-text-primary mt-1">
+                  {currentPositionData.name}
+                </h2>
+              </div>
+              <Badge variant="info" className="text-[10px]">
+                {currentPosition + 1} / {positions.length}
+              </Badge>
+            </div>
+            <p className="text-xs text-text-secondary mt-2">
+              {currentPositionData.candidates.length > 0
+                ? "Select one candidate."
+                : "No candidates available for this position."}
+            </p>
+          </div>
+
+          <div className="p-4 sm:p-5 space-y-3">
+            {currentPositionData.candidates.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {currentPositionData.candidates.map((candidate) => (
                   <CandidateVotingCard
@@ -185,40 +241,36 @@ function VotePageInner() {
                   />
                 ))}
               </div>
+            ) : (
+              <p className="text-sm text-text-secondary text-center py-4">
+                No candidates available for this position.
+              </p>
+            )}
 
-              <AbstainOption
-                isAbstained={currentSelection?.candidateId === null}
-                onAbstain={handleAbstain}
-              />
+            <AbstainOption
+              isAbstained={currentSelection?.candidateId === null}
+              onAbstain={handleAbstain}
+            />
 
-              {currentSelection?.candidateId === undefined && (
-                <p className="text-xs text-text-secondary text-center py-1">
-                  Please select a candidate or choose to abstain.
-                </p>
-              )}
-            </div>
+            {currentSelection?.candidateId === undefined && (
+              <p className="text-xs text-text-secondary text-center py-1">
+                Please select a candidate or choose to abstain.
+              </p>
+            )}
+          </div>
 
-            <div className="p-4 sm:p-5 border-t border-border">
-              <VotingNavigation
-                currentStep={currentPosition}
-                totalSteps={positions.length}
-                hasSelection={
-                  currentSelection?.candidateId !== undefined
-                }
-                onPrevious={handlePrevious}
-                onNext={handleNext}
-              />
-            </div>
-          </Card>
-        </div>
-      </StudentLayout>
-
-      <LeaveVotingModal
-        isOpen={showLeaveModal}
-        onStay={() => setShowLeaveModal(false)}
-        onLeave={handleLeave}
-      />
-    </>
+          <div className="p-4 sm:p-5 border-t border-border">
+            <VotingNavigation
+              currentStep={currentPosition}
+              totalSteps={positions.length}
+              hasSelection={currentSelection?.candidateId !== undefined}
+              onPrevious={handlePrevious}
+              onNext={handleNext}
+            />
+          </div>
+        </Card>
+      </div>
+    </StudentLayout>
   );
 }
 

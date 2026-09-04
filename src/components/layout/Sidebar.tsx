@@ -2,9 +2,9 @@
 
 import React from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { clearAuthCookie } from "@/lib/mock-auth";
+import { useSignOut } from "@/hooks/useSignOut";
 import {
   LayoutDashboard,
   Vote,
@@ -23,7 +23,7 @@ export interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ className, onNavigate }) => {
   const pathname = usePathname();
-  const router = useRouter();
+  const signOut = useSignOut();
 
   const menuItems = [
     { label: "Dashboard", href: "/student/dashboard", icon: LayoutDashboard },
@@ -85,10 +85,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ className, onNavigate }) => {
       {/* Bottom section (Logout) */}
       <div className="p-4 border-t border-border shrink-0">
         <button
-          onClick={() => {
-            clearAuthCookie();
-            router.push("/login");
-          }}
+          onClick={signOut}
           className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-error-600 hover:bg-error-50 transition-colors cursor-pointer"
         >
           <LogOut className="w-5 h-5 shrink-0" />

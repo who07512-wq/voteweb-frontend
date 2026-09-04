@@ -38,7 +38,7 @@ export const CampusVoteLogo: React.FC<CampusVoteLogoProps> = ({
         }
       : {
           title: "text-text-primary",
-          subtitle: "text-text-secondary",
+          subtitle: "text-white",
         };
 
   return (

@@ -6,7 +6,7 @@ import { ChevronDown, LogOut, Menu, Settings, User } from "lucide-react";
 import { Avatar } from "../ui/Avatar";
 import { Dropdown } from "../ui/Dropdown";
 import NotificationBell from "../ui/notification-bell";
-import { clearAuthCookie } from "@/lib/mock-auth";
+import { useSignOut } from "@/hooks/useSignOut";
 
 export interface NavbarProps {
   onToggleMenu: () => void;
@@ -15,6 +15,7 @@ export interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ onToggleMenu, studentName }) => {
   const router = useRouter();
+  const signOut = useSignOut();
   const dropdownItems = [
     {
       label: "My Profile",
@@ -34,10 +35,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMenu, studentName }) => 
       label: "Logout",
       icon: <LogOut className="w-4 h-4" />,
       danger: true,
-      onClick: () => {
-        clearAuthCookie();
-        router.push("/login");
-      },
+      onClick: signOut,
     },
   ];
 

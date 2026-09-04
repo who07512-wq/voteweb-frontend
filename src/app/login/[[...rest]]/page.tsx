@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { SignIn } from "@clerk/nextjs";
 import { hasRollNumber } from "@/lib/roll-number";
-import { HelpCircle, BookOpen, Mail, ArrowLeft, CheckCircle, Loader2 } from "lucide-react";
+import { HelpCircle, Mail, ArrowLeft, CheckCircle, Loader2 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
 import { AuthHeader } from "@/components/auth/AuthHeader";
@@ -13,6 +13,7 @@ import { RoleSelector } from "@/components/auth/RoleSelector";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import type { UserRole } from "@/lib/auth-types";
+import { setBindingToken } from "@/lib/session-binding";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://vote-main-production.up.railway.app/api/v1";
 
@@ -24,36 +25,6 @@ const clerkAppearance = {
     card: "shadow-none border border-gray-200 rounded-2xl",
   },
 };
-
-function ClerkAuthView() {
-  return (
-    <AuthLayout>
-      <AuthCard>
-        <div className="text-center mb-6">
-          <div className="w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center mx-auto mb-4">
-            <Mail className="w-6 h-6 text-primary-600" />
-          </div>
-          <AuthHeader
-            title="Candidate Sign In"
-            subtitle="Continue with Don Bosco Institute of Technology"
-          />
-        </div>
-        <SignIn
-          appearance={clerkAppearance}
-          fallbackRedirectUrl="/candidate/dashboard"
-        />
-        <div className="pt-4 border-t border-gray-200 mt-4">
-          <Link
-            href="/login"
-            className="text-sm text-primary-600 hover:text-primary-700 font-medium"
-          >
-            ← Back to sign in options
-          </Link>
-        </div>
-      </AuthCard>
-    </AuthLayout>
-  );
-}
 
 function LoginPageInner() {
   const router = useRouter();
@@ -226,6 +197,9 @@ function LoginPageInner() {
       }
 
       // Success!
+      // Persist the session binding token so authenticated writes (votes,
+      // notification actions) can attach X-Session-Binding.
+      setBindingToken(data.data?.bindingToken);
       setStep("success");
 
       // Redirect after showing success. Students and candidates must enter
@@ -262,33 +236,14 @@ function LoginPageInner() {
     setUserEmail("");
   };
 
-  // Clerk's callback / verification routes all live under /login (e.g.
-  // /login/verify, /login/create/verify, /login/sso-callback, and the
-  // catch-all probe /login/SignIn_clerk_catchall_check_*). They land here
-  // through the [[...rest]] catch-all, so whenever the URL is anything other
-  // than exactly /login - or carries Clerk state params - we must mount the
-  // Clerk component, otherwise a pending sign-in / sign-up attempt (like an
-  // emailed verification link) can never complete.
-  const isDeepClerkPath =
-    pathname !== "/login" && pathname.startsWith("/login/");
-  const hasClerkParams = Array.from(searchParams?.keys() ?? []).some((key) =>
-    key.startsWith("__clerk")
-  );
-  const hasClerkHash = hash.startsWith("#/");
-  const isClerkFlow = isDeepClerkPath || hasClerkParams || hasClerkHash;
-
-  if (isClerkFlow) {
-    return <ClerkAuthView />;
-  }
-
   // ======= EMAIL STEP =======
   if (step === "email") {
     return (
       <AuthLayout>
         <AuthCard>
           <div className="text-center mb-6">
-            <div className="w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center mx-auto mb-4">
-              <Mail className="w-6 h-6 text-primary-600" />
+            <div className="w-12 h-12 rounded-full bg-primary-600 flex items-center justify-center mx-auto mb-4">
+              <Mail className="w-6 h-6 text-white" />
             </div>
             <AuthHeader
               title="Sign In"
@@ -302,69 +257,50 @@ function LoginPageInner() {
             </div>
           )}
 
-          <form onSubmit={handleSendOtp} className="space-y-4">
+          <div className="space-y-4">
             <RoleSelector
               selectedRole={selectedRole}
               onSelect={setSelectedRole}
             />
 
-            {selectedRole === "candidate" ? (
-              <div className="pt-2">
-                <SignIn
-                  appearance={{
-                    elements: {
-                      rootBox: "w-full",
-                      card: "shadow-none border border-gray-200 rounded-2xl",
-                      footerAction: "hidden",
-                    },
-                  }}
-                  fallbackRedirectUrl="/candidate/dashboard"
+            <form onSubmit={handleSendOtp} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Email Address
+                </label>
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  required
+                  autoFocus
                 />
               </div>
-            ) : (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Email Address
-                  </label>
-                  <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    required
-                    autoFocus
-                  />
-                </div>
 
-                <Button
-                  type="submit"
-                  variant="primary"
-                  className="w-full"
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <span className="flex items-center gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Sending...
-                    </span>
-                  ) : (
-                    "Send Login Code"
-                  )}
-                </Button>
-              </>
-            )}
-          </form>
+              <Button
+                type="submit"
+                variant="primary"
+                className="w-full"
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Sending...
+                  </span>
+                ) : (
+                  "Send Login Code"
+                )}
+              </Button>
+            </form>
+          </div>
 
           <div className="pt-4 border-t border-gray-200">
             <div className="flex flex-wrap gap-4 justify-center text-xs text-gray-500">
-              <Link href="/help" className="flex items-center gap-1 hover:text-primary-600">
+              <Link href="/student/help" className="flex items-center gap-1 hover:text-primary-600">
                 <HelpCircle className="w-3.5 h-3.5" />
                 Help
-              </Link>
-              <Link href="/student/guidelines" className="flex items-center gap-1 hover:text-primary-600">
-                <BookOpen className="w-3.5 h-3.5" />
-                Guidelines
               </Link>
             </div>
           </div>
@@ -387,8 +323,8 @@ function LoginPageInner() {
           </button>
 
           <div className="text-center mb-6">
-            <div className="w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center mx-auto mb-4">
-              <Mail className="w-6 h-6 text-primary-600" />
+            <div className="w-12 h-12 rounded-full bg-primary-600 flex items-center justify-center mx-auto mb-4">
+              <Mail className="w-6 h-6 text-white" />
             </div>
             <AuthHeader
               title="Enter Verification Code"
@@ -451,7 +387,7 @@ function LoginPageInner() {
 
           <div className="pt-4 border-t border-gray-200 mt-4">
             <div className="flex flex-wrap gap-4 justify-center text-xs text-gray-500">
-              <Link href="/help" className="flex items-center gap-1 hover:text-primary-600">
+              <Link href="/student/help" className="flex items-center gap-1 hover:text-primary-600">
                 <HelpCircle className="w-3.5 h-3.5" />
                 Help
               </Link>

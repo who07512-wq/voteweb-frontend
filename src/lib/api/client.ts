@@ -2,7 +2,7 @@
 // Backend: Railway (vote-main-production.up.railway.app)
 // Uses session cookies + CSRF tokens for authentication
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://vote-main-production.up.railway.app/api/v1";
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "https://vote-main-production.up.railway.app/api/v1").replace(/\/$/, "");
 
 export class ApiError extends Error {
   status: number;
@@ -46,6 +46,16 @@ class ApiClient {
       const csrf = await this.getCsrfToken();
       if (csrf) {
         headers['X-CSRF-Token'] = csrf;
+      }
+
+      // Session binding token (required by the backend for authenticated
+      // writes when a session cookie is present). Loaded lazily so we never
+      // import this module on the server.
+      if (typeof window !== "undefined") {
+        const token = window.sessionStorage.getItem("campusvote_binding_token");
+        if (token) {
+          headers['X-Session-Binding'] = token;
+        }
       }
     }
 

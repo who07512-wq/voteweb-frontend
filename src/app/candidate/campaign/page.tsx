@@ -1,11 +1,11 @@
 "use client"
 
-import React, { useState, useRef, useCallback } from "react"
+import React, { useState, useRef, useCallback, useEffect } from "react"
 import { CandidateLayout } from "@/components/candidate-dashboard/CandidateLayout"
 import { Card } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
-import { Badge } from "@/components/ui/Badge"
-import { MOCK_CANDIDATE_PROFILE } from "@/lib/candidate-dashboard-data"
+import { useCandidateApplication } from "@/hooks/useCandidateApplication"
+import { updateMyProfile } from "@/lib/candidate-api"
 import {
   Upload,
   Image,
@@ -27,20 +27,36 @@ const LOGO_GUIDELINES = [
   "Do not use misleading institutional logos",
 ]
 
+interface CampaignDraft {
+  logo: string | null
+  title: string
+  description: string
+}
+
 export default function CampaignPage() {
+  const { application } = useCandidateApplication()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [logoPreview, setLogoPreview] = useState<string | null>(
-    MOCK_CANDIDATE_PROFILE.campaignLogo
-  )
-  const [campaignTitle, setCampaignTitle] = useState(
-    MOCK_CANDIDATE_PROFILE.campaignTitle
-  )
-  const [campaignDescription, setCampaignDescription] = useState(
-    MOCK_CANDIDATE_PROFILE.campaignDescription
-  )
+  const [draft, setDraft] = useState<CampaignDraft | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false)
+
+  // Loaded values (from the real application); draft (if any) overrides them.
+  const loaded: CampaignDraft = application
+    ? {
+        logo: application.photo || null,
+        title: application.position
+          ? `${application.position} Campaign`
+          : "My Campaign",
+        description: application.bio || "",
+      }
+    : { logo: null, title: "", description: "" }
+  const values = draft ?? loaded
+
+  const patchDraft = (patch: Partial<CampaignDraft>) =>
+    setDraft((prev) => ({ ...(prev ?? loaded), ...patch }))
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -60,27 +76,42 @@ export default function CampaignPage() {
     setIsUploading(true)
     const reader = new FileReader()
     reader.onload = () => {
-      setLogoPreview(reader.result as string)
+      patchDraft({ logo: reader.result as string })
       setIsUploading(false)
     }
     reader.readAsDataURL(file)
-  }, [])
+  }, [loaded.logo])
 
   const handleRemoveLogo = () => {
-    setLogoPreview(null)
+    patchDraft({ logo: null })
     setShowRemoveConfirm(false)
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
     }
   }
 
-  const handleSave = () => {
-    setSaveSuccess(true)
-    setTimeout(() => setSaveSuccess(false), 3000)
+  const handleSave = async () => {
+    setSaving(true)
+    setSaveError(null)
+    setSaveSuccess(false)
+    try {
+      await updateMyProfile({
+        profilePhotoUrl: values.logo,
+        bio: values.description.trim(),
+      })
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 3000)
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to save changes."
+      )
+    } finally {
+      setSaving(false)
+    }
   }
 
   const descriptionLimit = 300
-  const descriptionLength = campaignDescription.length
+  const descriptionLength = values.description.length
 
   return (
     <CandidateLayout>
@@ -112,12 +143,12 @@ export default function CampaignPage() {
                 aria-label="Upload campaign logo"
               />
 
-              {logoPreview ? (
+              {values.logo ? (
                 <div className="space-y-4">
                   <div className="flex items-start gap-4">
                     <div className="relative w-32 h-32 rounded-xl overflow-hidden border-2 border-gray-200 bg-gray-50 flex-shrink-0">
                       <img
-                        src={logoPreview}
+                        src={values.logo}
                         alt="Campaign logo preview"
                         className="w-full h-full object-cover"
                       />
@@ -219,11 +250,14 @@ export default function CampaignPage() {
                   </label>
                   <input
                     type="text"
-                    value={campaignTitle}
-                    onChange={(e) => setCampaignTitle(e.target.value)}
-                    placeholder="Enter your campaign title"
-                    className="w-full px-4 py-2.5 text-sm bg-white border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
+                    value={values.title}
+                    readOnly
+                    disabled
+                    className="w-full px-4 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl text-gray-900 cursor-not-allowed"
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Automatically derived from your contesting position.
+                  </p>
                 </div>
 
                 <div>
@@ -242,8 +276,8 @@ export default function CampaignPage() {
                     </span>
                   </div>
                   <textarea
-                    value={campaignDescription}
-                    onChange={(e) => setCampaignDescription(e.target.value)}
+                    value={values.description}
+                    onChange={(e) => patchDraft({ description: e.target.value })}
                     placeholder="Describe your campaign in 300 characters or less"
                     maxLength={descriptionLimit}
                     rows={4}
@@ -253,15 +287,27 @@ export default function CampaignPage() {
               </div>
 
               <div className="mt-6 flex items-center gap-3">
-                <Button onClick={handleSave}>
-                  <Save className="w-4 h-4 mr-1.5" />
-                  Save Changes
+                <Button onClick={handleSave} disabled={saving}>
+                  {saving ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin mr-1.5" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-1.5" />
+                      Save Changes
+                    </>
+                  )}
                 </Button>
                 {saveSuccess && (
                   <div className="flex items-center gap-2 text-sm text-emerald-600">
                     <CheckCircle2 className="w-4 h-4" />
                     <span className="font-medium">Saved successfully</span>
                   </div>
+                )}
+                {saveError && (
+                  <span className="text-sm text-red-600">{saveError}</span>
                 )}
               </div>
             </Card>
@@ -297,11 +343,11 @@ export default function CampaignPage() {
               </p>
 
               <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-                {logoPreview ? (
+                {values.logo ? (
                   <div className="flex justify-center mb-4">
                     <div className="w-20 h-20 rounded-lg overflow-hidden border border-gray-200 bg-white">
                       <img
-                        src={logoPreview}
+                        src={values.logo}
                         alt="Campaign logo preview"
                         className="w-full h-full object-cover"
                       />
@@ -317,15 +363,15 @@ export default function CampaignPage() {
 
                 <div className="text-center">
                   <h3 className="text-base font-bold text-gray-900">
-                    {campaignTitle || "Your Campaign Title"}
+                    {values.title || "Your Campaign Title"}
                   </h3>
                   <p className="text-sm text-gray-600 mt-1 line-clamp-3">
-                    {campaignDescription ||
+                    {values.description ||
                       "Your campaign description will appear here."}
                   </p>
                 </div>
 
-                {!logoPreview && (
+                {!values.logo && (
                   <div className="mt-4 flex items-center justify-center gap-1.5 text-xs text-amber-600">
                     <AlertTriangle className="w-3.5 h-3.5" />
                     <span>No logo uploaded yet</span>

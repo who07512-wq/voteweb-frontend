@@ -2,11 +2,10 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { ChevronDown, LogOut, Menu, Settings, User, Eye } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import NotificationBell from "@/components/ui/notification-bell";
-import { clearAuthCookie } from "@/lib/mock-auth";
+import { useSignOut } from "@/hooks/useSignOut";
 
 export interface CandidateNavbarProps {
   onToggleMenu: () => void;
@@ -19,7 +18,7 @@ export const CandidateNavbar: React.FC<CandidateNavbarProps> = ({
   candidateName,
   candidateId,
 }) => {
-  const router = useRouter();
+  const signOut = useSignOut();
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   return (
@@ -112,8 +111,7 @@ export const CandidateNavbar: React.FC<CandidateNavbarProps> = ({
                   <button
                     onClick={() => {
                       setDropdownOpen(false);
-                      clearAuthCookie();
-                      router.push("/login");
+                      signOut();
                     }}
                     className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-error-600 hover:bg-error-50 transition-colors"
                   >

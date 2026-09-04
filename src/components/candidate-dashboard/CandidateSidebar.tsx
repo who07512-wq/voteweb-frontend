@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast-provider";
+import { useSignOut } from "@/hooks/useSignOut";
 import type { ApplicationStatus } from "@/lib/candidate-dashboard-data";
 import {
   LayoutDashboard,
@@ -35,7 +36,7 @@ function isItemLocked(item: string, status: ApplicationStatus): boolean {
     case "submitted":
     case "under_review":
     case "rejected":
-      return item !== "Application Status";
+      return !["Application Status", "Apply as Candidate"].includes(item);
     case "changes_requested":
       return !["Application Status", "Apply as Candidate"].includes(item);
     default:
@@ -62,6 +63,7 @@ export const CandidateSidebar: React.FC<CandidateSidebarProps> = ({
 }) => {
   const pathname = usePathname();
   const { toast } = useToast();
+  const signOut = useSignOut();
 
   const handleLockedClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -138,9 +140,7 @@ export const CandidateSidebar: React.FC<CandidateSidebarProps> = ({
 
       <div className="p-4 border-t border-border shrink-0">
         <button
-          onClick={() => {
-            window.location.href = "/login";
-          }}
+          onClick={signOut}
           className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-error-600 hover:bg-error-50 transition-colors cursor-pointer"
         >
           <LogOut className="w-5 h-5 shrink-0" />

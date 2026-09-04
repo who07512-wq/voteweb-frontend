@@ -2,8 +2,8 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { StudentLayout } from "@/components/layout/StudentLayout";
+import { useSignOut } from "@/hooks/useSignOut";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -23,7 +23,7 @@ import {
 type SettingsTab = "notifications" | "language" | "security" | "account";
 
 export default function SettingsPage() {
-  const router = useRouter();
+  const signOut = useSignOut();
   const [activeTab, setActiveTab] = useState<SettingsTab>("notifications");
   const [notifications, setNotifications] = useState(MOCK_NOTIFICATION_SETTINGS);
   const [language, setLanguage] = useState("en");
@@ -36,7 +36,7 @@ export default function SettingsPage() {
 
   const handleSignOut = () => {
     setShowSignOutModal(false);
-    router.push("/login");
+    signOut();
   };
 
   const SETTINGS_TABS: { id: SettingsTab; label: string; icon: React.ElementType }[] = [

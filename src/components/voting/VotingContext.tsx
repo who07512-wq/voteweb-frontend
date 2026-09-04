@@ -1,12 +1,22 @@
 "use client";
-import { createContext, useContext, useState, useCallback, ReactNode } from "react";
-import { BallotSelection, MOCK_VOTING_ELECTION } from "@/lib/election-voting-data";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  ReactNode,
+} from "react";
+import { BallotSelection } from "@/lib/election-voting-data";
+
+const STORAGE_KEY = "campusvote_ballot_selections";
 
 interface VotingContextType {
   selections: BallotSelection[];
   setCandidate: (positionId: string, candidateId: string) => void;
   setAbstain: (positionId: string) => void;
   getSelection: (positionId: string) => BallotSelection | undefined;
+  seedSelections: (positions: { id: string }[]) => void;
   resetSelections: () => void;
 }
 
@@ -18,13 +28,31 @@ export function useVoting() {
   return ctx;
 }
 
+function loadStoredSelections(): BallotSelection[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function VotingProvider({ children }: { children: ReactNode }) {
   const [selections, setSelections] = useState<BallotSelection[]>(
-    MOCK_VOTING_ELECTION.positions.map((p) => ({
-      positionId: p.id,
-      candidateId: undefined as unknown as string,
-    }))
+    loadStoredSelections() || []
   );
+
+  // Persist across the vote -> review pages (each page mounts its own provider).
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(selections));
+    } catch {
+      // Storage unavailable - selections still work within this page.
+    }
+  }, [selections]);
 
   const setCandidate = useCallback((positionId: string, candidateId: string) => {
     setSelections((prev) =>
@@ -43,17 +71,26 @@ export function VotingProvider({ children }: { children: ReactNode }) {
     [selections]
   );
 
-  const resetSelections = useCallback(() => {
+  // Reset the ballot to the live positions, keeping any earlier answers for
+  // positions that still exist on this ballot.
+  const seedSelections = useCallback((positions: { id: string }[]) => {
+    const existing = loadStoredSelections() || [];
     setSelections(
-      MOCK_VOTING_ELECTION.positions.map((p) => ({
-        positionId: p.id,
-        candidateId: undefined as unknown as string,
-      }))
+      positions.map((p) => {
+        const prev = existing.find((s) => s.positionId === p.id);
+        return prev ? prev : { positionId: p.id, candidateId: undefined };
+      })
     );
   }, []);
 
+  const resetSelections = useCallback(() => {
+    setSelections([]);
+  }, []);
+
   return (
-    <VotingContext.Provider value={{ selections, setCandidate, setAbstain, getSelection, resetSelections }}>
+    <VotingContext.Provider
+      value={{ selections, setCandidate, setAbstain, getSelection, seedSelections, resetSelections }}
+    >
       {children}
     </VotingContext.Provider>
   );

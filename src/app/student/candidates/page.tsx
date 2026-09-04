@@ -4,9 +4,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { Scale, CheckCircle2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import {
-  getApprovedCandidatesAsCandidateList,
-} from "@/lib/candidate-application-store";
+import { listCandidates } from "@/lib/candidates-api";
 import type { Candidate } from "@/lib/candidate-data";
 
 import { CandidateGrid } from "@/components/candidate/CandidateGrid";
@@ -38,8 +36,8 @@ export default function CandidatePage() {
   const [comparedIds, setComparedIds] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    getApprovedCandidatesAsCandidateList()
+  const loadCandidates = () => {
+    listCandidates()
       .then((data) => {
         setCandidates(data);
         setLoading(false);
@@ -48,7 +46,18 @@ export default function CandidatePage() {
         setError("Failed to load candidates. Please try again.");
         setLoading(false);
       });
+  };
+
+  useEffect(() => {
+    loadCandidates();
   }, []);
+
+  // Event-handler retry (loading flag is set here, not inside the effect).
+  const retry = () => {
+    setLoading(true);
+    setError(null);
+    loadCandidates();
+  };
 
   const toggleCompare = (id: string) => {
     setComparedIds((prev) => {
@@ -123,14 +132,7 @@ export default function CandidatePage() {
           <ErrorState
             title="Something went wrong"
             message={error}
-            onRetry={() => {
-              setLoading(true);
-              setError(null);
-              getApprovedCandidatesAsCandidateList()
-                .then(setCandidates)
-                .catch(() => setError("Failed to load candidates."))
-                .finally(() => setLoading(false));
-            }}
+            onRetry={retry}
           />
         </div>
       )}

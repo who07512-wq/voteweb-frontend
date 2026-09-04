@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { AdminLayout } from "@/components/admin-dashboard/AdminLayout";
+import { useSignOut } from "@/hooks/useSignOut";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -80,7 +80,7 @@ const possibleRoles = [
 ];
 
 export default function AdminSettingsPage() {
-  const router = useRouter();
+  const signOut = useSignOut();
   const [activeTab, setActiveTab] = useState<Tab>("election");
   const [notifications, setNotifications] = useState(
     notificationOptions.map((n) => ({ ...n }))
@@ -96,7 +96,7 @@ export default function AdminSettingsPage() {
 
   const handleSignOut = () => {
     setShowSignOutModal(false);
-    router.push("/login");
+    signOut();
   };
 
   return (

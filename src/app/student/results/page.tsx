@@ -1,18 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/toast-provider";
 import { StudentLayout } from "@/components/layout/StudentLayout";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { MOCK_ELECTION_RESULTS } from "@/lib/results-data";
+import {
+  fetchElectionResults,
+  ResultsNotPublishedError,
+  type MappedElectionResults,
+} from "@/lib/results-api";
+import { listElections } from "@/lib/voting-api";
 import {
   CheckCircle2,
   Trophy,
   Medal,
-  Users,
-  BarChart3,
   Search,
   ChevronDown,
   ChevronUp,
@@ -23,29 +27,127 @@ import {
   Calendar,
   Shield,
   Info,
+  RefreshCw,
 } from "lucide-react";
 
 export default function StudentResultsPage() {
+  const router = useRouter();
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [positionFilter, setPositionFilter] = useState("all");
   const [expandedPosition, setExpandedPosition] = useState<string | null>(null);
+  const [results, setResults] = useState<MappedElectionResults | null>(null);
+  const [notPublished, setNotPublished] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const results = MOCK_ELECTION_RESULTS;
-  const isPublished = results.status === "published";
+  // Pure fetch — no setState here so it can be called from the effect.
+  const loadResults = async (): Promise<
+    | { ok: true; results: MappedElectionResults }
+    | { ok: false; notPublished: boolean; error: string }
+  > => {
+    try {
+      const elections = await listElections();
+      if (elections.length === 0) {
+        return { ok: false, notPublished: false, error: "No election found." };
+      }
+      // Prefer the election currently accepting votes, else the first one.
+      const target =
+        elections.find((e) => e.status === "OPEN") || elections[0];
+      const data = await fetchElectionResults(target.id);
+      return { ok: true, results: data };
+    } catch (err) {
+      if (err instanceof ResultsNotPublishedError) {
+        return { ok: false, notPublished: true, error: "" };
+      }
+      return {
+        ok: false,
+        notPublished: false,
+        error: err instanceof Error ? err.message : "Failed to load results.",
+      };
+    }
+  };
 
-  const filteredPositions = results.positions.filter((position) => {
-    const matchesSearch =
-      position.position.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      position.candidates.some((c) =>
-        c.name.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    const matchesFilter =
-      positionFilter === "all" || position.position === positionFilter;
-    return matchesSearch && matchesFilter;
-  });
+  // Apply a fetch result to component state (called after await in the effect
+  // below or from the retry event handler).
+  const applyResult = useCallback(
+    (result: { ok: true; results: MappedElectionResults } | { ok: false; notPublished: boolean; error: string }) => {
+      if (result.ok) {
+        setResults(result.results);
+        setNotPublished(false);
+        setError(null);
+      } else if (result.notPublished) {
+        setNotPublished(true);
+        setResults(null);
+        setError(null);
+      } else {
+        setError(result.error);
+        setResults(null);
+        setNotPublished(false);
+      }
+      setLoading(false);
+    },
+    []
+  );
 
-  if (!isPublished) {
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const result = await loadResults();
+      if (alive) applyResult(result);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [applyResult]);
+
+  // Retry from the error state.
+  const retry = () => {
+    setLoading(true);
+    loadResults().then(applyResult);
+  };
+
+  if (loading) {
+    return (
+      <StudentLayout>
+        <div className="min-h-[60vh] flex items-center justify-center">
+          <Card className="max-w-md w-full text-center p-8 border-border">
+            <div className="w-10 h-10 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-text-primary mb-2">
+              Loading Results
+            </h2>
+            <p className="text-sm text-text-secondary">
+              Fetching official election results…
+            </p>
+          </Card>
+        </div>
+      </StudentLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <StudentLayout>
+        <div className="min-h-[60vh] flex items-center justify-center">
+          <Card className="max-w-md w-full text-center p-8 border-border">
+            <div className="w-16 h-16 bg-error-50 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-8 h-8 text-error" />
+            </div>
+            <h2 className="text-xl font-bold text-text-primary mb-2">
+              Couldn&apos;t Load Results
+            </h2>
+            <p className="text-sm text-text-secondary mb-6">{error}</p>
+            <Button variant="primary" onClick={retry} className="gap-2">
+              <RefreshCw className="w-4 h-4" />
+              Try Again
+            </Button>
+          </Card>
+        </div>
+      </StudentLayout>
+    );
+  }
+
+  if (notPublished || !results) {
     return (
       <StudentLayout>
         <div className="min-h-[60vh] flex items-center justify-center">
@@ -62,7 +164,7 @@ export default function StudentResultsPage() {
             </p>
             <Button
               variant="primary"
-              onClick={() => (window.location.href = "/student/dashboard")}
+              onClick={() => router.push("/student/dashboard")}
               className="gap-2"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -74,6 +176,17 @@ export default function StudentResultsPage() {
     );
   }
 
+  const filteredPositions = results.positions.filter((position) => {
+    const matchesSearch =
+      position.position.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      position.candidates.some((c) =>
+        c.name.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    const matchesFilter =
+      positionFilter === "all" || position.position === positionFilter;
+    return matchesSearch && matchesFilter;
+  });
+
   return (
     <StudentLayout>
       <div className="max-w-4xl mx-auto space-y-6">
@@ -84,12 +197,11 @@ export default function StudentResultsPage() {
               Election Results
             </h1>
             <p className="text-sm text-text-secondary">
-              Official results for the Student Council Election 2026.
+              Official results for {results.electionName}.
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="success">Official Results</Badge>
-            <Badge variant="warning">Demo Results</Badge>
           </div>
         </div>
 

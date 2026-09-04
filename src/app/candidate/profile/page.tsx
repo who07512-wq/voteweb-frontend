@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import type { ApplicationStatus } from "@/lib/candidate-dashboard-data";
 import { useCandidateApplication } from "@/hooks/useCandidateApplication";
-import { Lock, Camera } from "lucide-react";
+import { updateMyProfile } from "@/lib/candidate-api";
+import { Lock, Camera, Loader2 } from "lucide-react";
 
 const STATUS_MAP: Record<string, { label: string; variant: "default" | "success" | "warning" | "error" | "info" | "neutral"; description: string }> = {
   draft: { label: "Draft", variant: "neutral", description: "Your profile is in draft. Submit it for review." },
@@ -34,6 +35,10 @@ export default function CandidateProfilePage() {
     photo: app.photo,
     email: app.email,
     phone: app.phone,
+    age: app.age,
+    dateOfBirth: app.dateOfBirth,
+    gender: app.gender,
+    aadharNumber: app.aadharNumber,
     campaignLogo: null,
   } : {
     name: "",
@@ -48,12 +53,18 @@ export default function CandidateProfilePage() {
     photo: null,
     email: "",
     phone: "",
+    age: null,
+    dateOfBirth: null,
+    gender: null,
+    aadharNumber: null,
     campaignLogo: null,
   };
   const statusInfo = STATUS_MAP[profile.status || "draft"];
   const isApproved = profile.status === "approved";
 
   const [isEditing, setIsEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     biography: profile?.bio || "",
   });
@@ -81,9 +92,20 @@ export default function CandidateProfilePage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!validate()) return;
-    setIsEditing(false);
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await updateMyProfile({ bio: formData.biography.trim() });
+      setIsEditing(false);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to save profile. Please try again."
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCancel = () => {
@@ -108,7 +130,15 @@ export default function CandidateProfilePage() {
           {isApproved && (
             <Button
               variant={isEditing ? "outline" : "primary"}
-              onClick={() => (isEditing ? handleCancel() : setIsEditing(true))}
+              onClick={() => {
+                if (isEditing) {
+                  handleCancel();
+                } else {
+                  setFormData({ biography: profile?.bio || "" });
+                  setErrors({});
+                  setIsEditing(true);
+                }
+              }}
             >
               {isEditing ? "Cancel Editing" : "Edit Profile"}
             </Button>
@@ -119,9 +149,17 @@ export default function CandidateProfilePage() {
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-start gap-5">
               <div className="relative group">
-                <div className="w-20 h-20 rounded-full bg-primary-600 flex items-center justify-center flex-shrink-0">
-                  <span className="text-2xl font-bold text-white">{initials}</span>
-                </div>
+                {profile.photo ? (
+                  <img
+                    src={profile.photo}
+                    alt={profile.name}
+                    className="w-20 h-20 rounded-full object-cover border-2 border-primary-200"
+                  />
+                ) : (
+                  <div className="w-20 h-20 rounded-full bg-primary-600 flex items-center justify-center flex-shrink-0">
+                    <span className="text-2xl font-bold text-white">{initials}</span>
+                  </div>
+                )}
                 {isApproved && (
                   <label className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
                     <Camera className="w-5 h-5 text-white" />
@@ -148,7 +186,7 @@ export default function CandidateProfilePage() {
                 <div className="bg-primary-50 border border-primary-200 rounded-xl p-4 text-sm text-primary-700">
                   <p className="font-medium">Read-only fields</p>
                   <p className="mt-1 text-xs text-primary-600">
-                    Name, Enrollment Number, Department, Year, Section, and Position cannot be edited after approval.
+                    Name, Enrollment Number, Age, DOB, Gender, Aadhar, Department, Year, Section, and Position cannot be edited after approval.
                   </p>
                 </div>
 
@@ -219,6 +257,50 @@ export default function CandidateProfilePage() {
                       className="w-full px-3 py-2.5 rounded-xl border border-border text-sm text-text-secondary bg-primary-50 cursor-not-allowed"
                     />
                   </div>
+                  <div>
+                    <label className="block text-xs font-medium text-text-secondary mb-1.5">
+                      Age 🔒
+                    </label>
+                    <input
+                      type="text"
+                      value={profile.age || ""}
+                      disabled
+                      className="w-full px-3 py-2.5 rounded-xl border border-border text-sm text-text-secondary bg-primary-50 cursor-not-allowed"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-text-secondary mb-1.5">
+                      Date of Birth 🔒
+                    </label>
+                    <input
+                      type="text"
+                      value={profile.dateOfBirth || ""}
+                      disabled
+                      className="w-full px-3 py-2.5 rounded-xl border border-border text-sm text-text-secondary bg-primary-50 cursor-not-allowed"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-text-secondary mb-1.5">
+                      Gender 🔒
+                    </label>
+                    <input
+                      type="text"
+                      value={profile.gender || ""}
+                      disabled
+                      className="w-full px-3 py-2.5 rounded-xl border border-border text-sm text-text-secondary bg-primary-50 cursor-not-allowed"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-text-secondary mb-1.5">
+                      Aadhar Number 🔒
+                    </label>
+                    <input
+                      type="text"
+                      value={profile.aadharNumber || ""}
+                      disabled
+                      className="w-full px-3 py-2.5 rounded-xl border border-border text-sm text-text-secondary bg-primary-50 font-mono cursor-not-allowed"
+                    />
+                  </div>
                 </div>
 
                 <div className="pt-2">
@@ -252,8 +334,20 @@ export default function CandidateProfilePage() {
                   </div>
                 </div>
 
+                {saveError && (
+                  <p className="text-xs text-error-600 font-medium">{saveError}</p>
+                )}
                 <div className="flex items-center gap-3 pt-4 border-t border-border">
-                  <Button onClick={handleSave}>Save Profile</Button>
+                  <Button onClick={handleSave} disabled={saving}>
+                    {saving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
+                        Saving...
+                      </>
+                    ) : (
+                      "Save Profile"
+                    )}
+                  </Button>
                   <Button variant="outline" onClick={handleCancel}>Cancel</Button>
                 </div>
               </div>
@@ -290,6 +384,22 @@ export default function CandidateProfilePage() {
                     <div className="p-3 rounded-xl bg-bg-tertiary">
                       <p className="text-[10px] text-text-secondary uppercase tracking-wider mb-1">Position 🔒</p>
                       <p className="text-sm font-semibold text-text-primary">{profile.position}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-bg-tertiary">
+                      <p className="text-[10px] text-text-secondary uppercase tracking-wider mb-1">Age 🔒</p>
+                      <p className="text-sm font-semibold text-text-primary">{profile.age || "—"}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-bg-tertiary">
+                      <p className="text-[10px] text-text-secondary uppercase tracking-wider mb-1">Date of Birth 🔒</p>
+                      <p className="text-sm font-semibold text-text-primary">{profile.dateOfBirth || "—"}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-bg-tertiary">
+                      <p className="text-[10px] text-text-secondary uppercase tracking-wider mb-1">Gender 🔒</p>
+                      <p className="text-sm font-semibold text-text-primary">{profile.gender || "—"}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-bg-tertiary">
+                      <p className="text-[10px] text-text-secondary uppercase tracking-wider mb-1">Aadhar Number 🔒</p>
+                      <p className="text-sm font-mono font-semibold text-text-primary">{profile.aadharNumber || "—"}</p>
                     </div>
                   </div>
                 </div>
