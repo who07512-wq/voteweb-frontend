@@ -118,6 +118,12 @@ function LoginPageInner() {
             Students, candidates, and administrators all sign in with Google.
             First-time users will be asked for their roll number once.
           </p>
+
+          <p className="text-center mt-4">
+            <Link href="/access-request" className="text-sm text-primary-600 hover:text-primary-700 hover:underline font-medium">
+              Request Voting Access
+            </Link>
+          </p>
         </div>
 
         <p className="text-center mt-4">
