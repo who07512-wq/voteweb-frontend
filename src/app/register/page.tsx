@@ -3,13 +3,15 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useSignIn, useSignUp, useAuth } from "@clerk/nextjs";
-import { HelpCircle, Loader2, Mail, KeyRound } from "lucide-react";
+import { HelpCircle, Loader2, Mail, UserPlus, KeyRound, Hash } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
 import { AuthHeader } from "@/components/auth/AuthHeader";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { setBindingToken } from "@/lib/session-binding";
+import { setAuthCookie } from "@/lib/mock-auth";
+import { saveRollNumber } from "@/lib/roll-number";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
@@ -20,14 +22,17 @@ const DASHBOARDS: Record<string, string> = {
   CAD: "/cad/dashboard",
 };
 
-type Stage = "email" | "code" | "new-password";
+type Stage = "email" | "code" | "details";
 
 /**
- * Forgot password: email → one-time code (sent by Clerk) → choose a new
- * password. The backend verifies the Clerk session token server-side before
- * changing the password, so only whoever received the code can reset it.
+ * Registration: email → one-time code (sent by Clerk) → choose a password +
+ * tell us your roll number → account created → dashboard.
+ *
+ * Email ownership is proven by the Clerk code challenge; the backend verifies
+ * the Clerk session token server-side before creating the account, so the
+ * password and roll number can only be set by whoever received the code.
  */
-export default function ForgotPasswordPage() {
+export default function RegisterPage() {
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
   const { getToken } = useAuth();
@@ -36,8 +41,10 @@ export default function ForgotPasswordPage() {
   const [flow, setFlow] = useState<"signin" | "signup" | null>(null);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [rollNumber, setRollNumber] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -70,6 +77,7 @@ export default function ForgotPasswordPage() {
     setIsSending(true);
     try {
       const normalized = email.trim().toLowerCase();
+      // Existing Clerk account → sign in path. Brand-new email → sign up.
       const res = await signIn.emailCode.sendCode({ emailAddress: normalized });
       if (!res?.error) {
         setFlow("signin");
@@ -78,22 +86,33 @@ export default function ForgotPasswordPage() {
         return;
       }
       if (isNotFoundError(res.error)) {
-        // No account with this email — tell the user plainly (registration
-        // is the right path for them) instead of creating a new account.
-        setError("No account exists with this email. Create one from the Register page first.");
+        const up = await signUp.create({ emailAddress: normalized });
+        if (up?.error) {
+          setError(`We couldn't start registration for that email${describe(up.error)}`);
+          setIsSending(false);
+          return;
+        }
+        const sent = await signUp.verifications.sendEmailCode();
+        if (sent?.error) {
+          setError(`We couldn't send the code to that email${describe(sent.error)}`);
+          setIsSending(false);
+          return;
+        }
+        setFlow("signup");
+        setStage("code");
         setIsSending(false);
         return;
       }
       setError(`We couldn't send the code to that email${describe(res.error)}`);
       setIsSending(false);
     } catch (err) {
-      console.error("forgot sendCode:", err);
+      console.error("register sendCode:", err);
       setError("We couldn't send the code. Please check your connection and try again.");
       setIsSending(false);
     }
   };
 
-  // ---- Stage 2: verify the code ----
+  // ---- Stage 2: verify the code → Clerk session becomes active ----
   const verifyCode = async (): Promise<boolean> => {
     setError("");
     if (!code || code.trim().length < 4) {
@@ -111,6 +130,14 @@ export default function ForgotPasswordPage() {
           setIsVerifying(false);
           return false;
         }
+        if (signUp.status === "complete") {
+          const fin = await signUp.finalize();
+          if (fin?.error) {
+            setError(`Verification could not be completed${describe(fin.error)}`);
+            setIsVerifying(false);
+            return false;
+          }
+        }
       } else if (signIn) {
         const res = await signIn.emailCode.verifyCode({ code: trimmed });
         if (res?.error) {
@@ -119,42 +146,44 @@ export default function ForgotPasswordPage() {
           return false;
         }
         if (signIn.status === "complete") {
-          // IMPORTANT: do NOT finalize the sign-in — this is a password reset,
-          // not a login. Keep the pre-finalize state so the session token can
-          // be used to prove the email for the reset endpoint.
-          setStage("new-password");
-          setIsVerifying(false);
-          return true;
+          const fin = await signIn.finalize();
+          if (fin?.error) {
+            setError(`Verification could not be completed${describe(fin.error)}`);
+            setIsVerifying(false);
+            return false;
+          }
         }
-        setError("Verification is not complete. Please try again.");
-        setIsVerifying(false);
-        return false;
       }
 
-      setStage("new-password");
+      setStage("details");
       setIsVerifying(false);
       return true;
     } catch (err) {
-      console.error("forgot verifyCode:", err);
+      console.error("register verifyCode:", err);
       setError("Something went wrong verifying the code. Please try again.");
       setIsVerifying(false);
       return false;
     }
   };
 
-  // ---- Stage 3: set the new password ----
-  const resetPassword = async () => {
+  // ---- Stage 3: set password + roll number → backend account ----
+  const completeRegistration = async () => {
     setError("");
-    if (newPassword.length < 12) {
+    if (password.length < 12) {
       setError("Password must be at least 12 characters long.");
       return;
     }
-    if (newPassword !== confirmNewPassword) {
+    if (password !== confirmPassword) {
       setError("Passwords do not match.");
+      return;
+    }
+    if (!rollNumber.trim()) {
+      setError("Enter your roll / enrollment number.");
       return;
     }
     setIsSubmitting(true);
     try {
+      // The Clerk session token proves the email was verified by code.
       const token = await getToken();
       if (!token) {
         setError("Your verification session expired. Please start again.");
@@ -166,7 +195,7 @@ export default function ForgotPasswordPage() {
       const csrfData = await csrfRes.json();
       const csrfToken = csrfData.data?.csrfToken || "";
 
-      const res = await fetch(`${API_BASE}/auth/forgot-password/clerk`, {
+      const res = await fetch(`${API_BASE}/auth/register/clerk`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -176,31 +205,37 @@ export default function ForgotPasswordPage() {
         credentials: "include",
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
-          newPassword,
-          confirmNewPassword,
+          password,
+          confirmPassword,
+          rollNumber: rollNumber.trim(),
+          fullName: fullName.trim(),
         }),
       });
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        if (data.error?.code === "ACCOUNT_NOT_FOUND") {
-          setNotice(data.error.message || "No account exists for this email. Please register first.");
+        if (data.error?.code === "EMAIL_EXISTS") {
+          setNotice(data.error.message || "An account with this email already exists. Please sign in.");
           setError("");
           setIsSubmitting(false);
           return;
         }
-        setError(data.error?.message || "Password reset failed. Please try again.");
+        setError(data.error?.message || "Registration failed. Please try again.");
         setIsSubmitting(false);
         return;
       }
 
-      // Success — the backend revoked old sessions and issued a fresh one.
+      // Success: persist the session artifacts + roll number (skips the
+      // roll-number prompt after sign-in) and go to the dashboard.
       if (data.data?.bindingToken) setBindingToken(data.data.bindingToken);
       const user = data.data?.user;
+      if (user?.name) setAuthCookie("student", user.name, user.email || email);
+      saveRollNumber("student", email.trim().toLowerCase(), rollNumber.trim());
+
       const role = String(user?.role || "STUDENT").toUpperCase();
       window.location.href = DASHBOARDS[role] || "/student/dashboard";
     } catch (err) {
-      console.error("forgot reset:", err);
+      console.error("register complete:", err);
       setError("Unable to reach the server. Please check your connection and try again.");
       setIsSubmitting(false);
     }
@@ -211,8 +246,8 @@ export default function ForgotPasswordPage() {
       <AuthCard>
         <div className="text-center mb-6">
           <AuthHeader
-            title="Forgot password"
-            subtitle="Verify your email with a one-time code, then choose a new password"
+            title="Create your account"
+            subtitle="Register with your email, a one-time code, a password and your roll number"
           />
         </div>
 
@@ -220,11 +255,11 @@ export default function ForgotPasswordPage() {
           <div className="mb-4 p-3 bg-primary-50 border border-primary-200 rounded-lg text-primary-800 text-sm break-words">
             {notice}
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-              <Link href="/register" className="font-medium underline">
-                Create an account
-              </Link>
               <Link href="/login" className="font-medium underline">
-                Back to sign in
+                Sign in instead
+              </Link>
+              <Link href="/forgot-password" className="font-medium underline">
+                Forgot password?
               </Link>
             </div>
           </div>
@@ -238,12 +273,12 @@ export default function ForgotPasswordPage() {
         {stage === "email" && (
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <label htmlFor="forgot-email" className="text-xs font-medium text-text-secondary">
+              <label htmlFor="register-email" className="text-xs font-medium text-text-secondary">
                 Email address
               </label>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
-                  id="forgot-email"
+                  id="register-email"
                   type="email"
                   autoComplete="email"
                   placeholder="you@example.com"
@@ -265,7 +300,7 @@ export default function ForgotPasswordPage() {
               </div>
             </div>
             <p className="text-xs text-text-secondary text-center">
-              Remembered it?{" "}
+              Already have an account?{" "}
               <Link href="/login" className="text-primary-600 hover:text-primary-700 font-medium">
                 Sign in
               </Link>
@@ -282,7 +317,7 @@ export default function ForgotPasswordPage() {
               </span>
             </div>
             <Input
-              id="forgot-code"
+              id="register-code"
               label="One-time code"
               type="text"
               inputMode="numeric"
@@ -333,45 +368,66 @@ export default function ForgotPasswordPage() {
           </div>
         )}
 
-        {stage === "new-password" && (
+        {stage === "details" && (
           <div className="space-y-4">
             <div className="p-3 bg-green-50 border border-green-100 rounded-lg text-sm text-green-800 flex items-start gap-2">
               <Mail className="w-4 h-4 mt-0.5 shrink-0" />
               <span>
-                <strong>{email}</strong> verified. Choose a new password for your account.
+                <strong>{email}</strong> verified. Now choose a password and enter your details.
               </span>
             </div>
             <Input
-              id="forgot-new-password"
-              label="New password (min 12 characters)"
+              id="register-name"
+              label="Full name (optional)"
+              type="text"
+              autoComplete="name"
+              placeholder="Your name"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+            />
+            <div className="relative">
+              <Input
+                id="register-roll"
+                label="Roll / enrollment number"
+                type="text"
+                autoComplete="off"
+                placeholder="e.g. 0221IT211045"
+                value={rollNumber}
+                onChange={(e) => setRollNumber(e.target.value)}
+              />
+              <Hash className="w-3.5 h-3.5 text-text-muted absolute right-3 top-9" />
+            </div>
+            <Input
+              id="register-password"
+              label="Password (min 12 characters)"
               type="password"
               autoComplete="new-password"
               placeholder="Choose a strong password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
             />
             <Input
-              id="forgot-confirm"
-              label="Confirm new password"
+              id="register-confirm"
+              label="Confirm password"
               type="password"
               autoComplete="new-password"
-              placeholder="Re-enter your new password"
-              value={confirmNewPassword}
-              onChange={(e) => setConfirmNewPassword(e.target.value)}
+              placeholder="Re-enter your password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") resetPassword();
+                if (e.key === "Enter") completeRegistration();
               }}
             />
             <Button
-              onClick={resetPassword}
+              onClick={completeRegistration}
               disabled={isSubmitting}
               isLoading={isSubmitting}
               className="w-full"
             >
               {!isSubmitting && (
                 <>
-                  <KeyRound className="w-4 h-4" />
-                  Set new password
+                  <UserPlus className="w-4 h-4" />
+                  Create account
                 </>
               )}
             </Button>
@@ -385,8 +441,14 @@ export default function ForgotPasswordPage() {
             <HelpCircle className="w-3.5 h-3.5 shrink-0" />
           )}
           <span>
-            For security, every other signed-in device is signed out after a password reset.
+            Your email is verified by a one-time code. You&apos;ll sign in with your email and
+            password afterwards — and can reset it anytime with{" "}
+            <Link href="/forgot-password" className="underline">
+              forgot password
+            </Link>
+            .
           </span>
+          <KeyRound className="w-3 h-3 opacity-50 shrink-0" />
         </div>
       </AuthCard>
     </AuthLayout>
