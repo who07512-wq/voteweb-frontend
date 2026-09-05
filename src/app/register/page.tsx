@@ -3,5 +3,5 @@
 import { RoleRegisterPage } from "./role-register";
 
 export default function Page() {
-  return <RoleRegisterPage portal="any" />;
+  return <RoleRegisterPage portal="candidate" />;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useSignIn, useSignUp, useAuth } from "@clerk/nextjs";
+import { useSignIn, useSignUp, useAuth, useClerk } from "@clerk/nextjs";
 import { HelpCircle, Loader2, ShieldAlert, Mail, KeyRound } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
@@ -55,6 +55,11 @@ export function RoleLoginPage({
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
   const { isLoaded: authLoaded, isSignedIn } = useAuth();
+  const clerk = useClerk();
+
+  // Set when a "send code" click had to sign out of an active Clerk session
+  // first; the effect below retries the send once Clerk reports signed-out.
+  const [pendingSend, setPendingSend] = useState(false);
 
   // Effective role: locked by the portal, or chosen on the "any" page.
   const [selectedRole, setSelectedRole] = useState<UserRole>(
@@ -134,6 +139,11 @@ export function RoleLoginPage({
     );
   };
 
+  const isAlreadySignedInError = (err: unknown): boolean => {
+    const message = String((err as { message?: string } | null)?.message || "").toLowerCase();
+    return message.includes("already signed in") || message.includes("session already");
+  };
+
   const setRoleFlags = () => {
     const roleKey = selectedRole;
     sessionStorage.setItem("campusvote_login_role", roleKey);
@@ -158,6 +168,17 @@ export function RoleLoginPage({
     return false;
   };
 
+  // After clicking "Send code" while a stale Clerk session was active, retry
+  // the send automatically once the sign-out completes.
+  useEffect(() => {
+    if (!pendingSend || !authLoaded) return;
+    if (!isSignedIn) {
+      setPendingSend(false);
+      sendEmailCode();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSend, authLoaded, isSignedIn]);
+
   const sendEmailCode = async () => {
     setError("");
     if (!email || !email.includes("@")) {
@@ -166,6 +187,15 @@ export function RoleLoginPage({
     }
     if (!signIn || !signUp) {
       setError("Sign-in is still loading. Please try again in a moment.");
+      return;
+    }
+    // An active Clerk session blocks starting a new code flow (Clerk
+    // rejects with "You're already signed in."). Sign out of the stale
+    // session first; the effect above retries the send once signed out.
+    if (authLoaded && isSignedIn) {
+      setPendingSend(true);
+      setIsSending(true);
+      clerk.signOut().catch(() => {});
       return;
     }
     setIsSending(true);
@@ -205,6 +235,13 @@ export function RoleLoginPage({
         setFlow("signup");
         setStage("code");
         setIsSending(false);
+        return;
+      }
+
+      // Session appeared mid-flow (e.g. restored late) — sign out & retry.
+      if (isAlreadySignedInError(res.error)) {
+        setPendingSend(true);
+        clerk.signOut().catch(() => {});
         return;
       }
 
@@ -260,6 +297,27 @@ export function RoleLoginPage({
       if (signIn) {
         const res = await signIn.emailCode.verifyCode({ code: trimmed });
         if (res?.error) {
+          const message = String(
+            (res.error as { message?: string } | null)?.message || ""
+          ).toLowerCase();
+          // Codes are single-use and expire (~10 min), and resending
+          // invalidates older ones — a rejected attempt is almost always a
+          // stale code. Restart the flow so a fresh code goes out.
+          if (
+            message.includes("incorrect") ||
+            message.includes("expired") ||
+            message.includes("already used")
+          ) {
+            setNotice("");
+            setCode("");
+            setStage("email");
+            setFlow(null);
+            setError(
+              "That code is no longer valid (codes expire and resending voids older ones). We've restarted the process — enter your email again and use the newest code."
+            );
+            setIsVerifying(false);
+            return;
+          }
           setError(`The code was not accepted${describe(res.error)}`);
           setIsVerifying(false);
           return;
@@ -701,10 +759,10 @@ export function RoleLoginPage({
 
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs text-text-secondary pt-1">
               <a
-                href={portal === "cad" ? "/register/cad" : "/register"}
+                href="/register"
                 className="text-primary-600 hover:text-primary-700 font-medium"
               >
-                New here? Create an account
+                New here? Register as a candidate
               </a>
               <a
                 href="/email-recovery"

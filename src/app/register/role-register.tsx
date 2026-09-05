@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSignIn, useSignUp, useAuth } from "@clerk/nextjs";
+import { useSignIn, useSignUp, useAuth, useClerk } from "@clerk/nextjs";
 import {
   HelpCircle,
   Loader2,
@@ -11,14 +11,12 @@ import {
   KeyRound,
   Hash,
   Mic,
-  GraduationCap,
 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
 import { AuthHeader } from "@/components/auth/AuthHeader";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
-import { cn } from "@/lib/utils";
 import { setBindingToken } from "@/lib/session-binding";
 import { setAuthCookie } from "@/lib/mock-auth";
 import { saveRollNumber } from "@/lib/roll-number";
@@ -33,38 +31,38 @@ const DASHBOARDS: Record<string, string> = {
 };
 
 type Stage = "email" | "code" | "details";
-export type RegisterPortal = "any" | "student" | "cad";
+export type RegisterPortal = "any" | "candidate" | "student";
 
 const PORTAL_TITLES: Record<RegisterPortal, string> = {
   any: "Create your account",
+  candidate: "Candidate Registration",
   student: "Student Registration",
-  cad: "CAD Registration",
 };
 
 /**
- * Shared registration portal used by /register, /register/student and
- * /register/cad. The `portal` prop preselects (and locks) the role the same
- * way the login portals work.
+ * Shared registration portal used by /register and /register/candidate.
  *
- * Flow: email → one-time code (sent by Clerk) → choose a password (+ roll
- * number for students) → backend account → dashboard.
+ * PORTAL STATUS (for now): only CANDIDATE registration is open. Student
+ * registration is closed (/register/student shows the closed notice) and
+ * admin accounts are never self-registered (/login/admin only).
  *
- * Portal rules mirror the login portals:
- *  - CAD registration is OPEN (anyone can create a CAD account).
- *  - Student registration is DISABLED for now (the dedicated /register/student
- *    portal shows a closed notice, like /login/student).
- *  - Admin is never self-registered — admins sign in at /login/admin.
+ * A candidate registration creates a STUDENT-backed login for the candidate
+ * application flow: email → one-time code (sent by Clerk) → password →
+ * dashboard → apply as candidate. Candidacy itself is granted when an admin
+ * approves the application, never at signup.
  */
 export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
-  const { getToken } = useAuth();
+  const { getToken, isLoaded: authLoaded, isSignedIn } = useAuth();
+  const clerk = useClerk();
 
-  // Effective role: locked by the portal, or chosen on the "any" page.
-  // The main page registers CAD accounts (the open portal) and says so.
-  const [selectedRole, setSelectedRole] = useState<"cad" | "student">(
-    portal === "student" ? "student" : "cad"
-  );
+  // Candidate is the only registrable role for now.
+  const [selectedRole] = useState<"candidate" | "student">("candidate");
+
+  // Set when a "send code" click had to sign out of an active Clerk session
+  // first; the effect below retries the send once Clerk reports signed-out.
+  const [pendingSend, setPendingSend] = useState(false);
 
   const [stage, setStage] = useState<Stage>("email");
   const [flow, setFlow] = useState<"signin" | "signup" | null>(null);
@@ -104,6 +102,22 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     );
   };
 
+  const isAlreadySignedInError = (err: unknown): boolean => {
+    const message = String((err as { message?: string } | null)?.message || "").toLowerCase();
+    return message.includes("already signed in") || message.includes("session already");
+  };
+
+  // After clicking "Send code" while a stale Clerk session was active, retry
+  // the send automatically once the sign-out completes.
+  useEffect(() => {
+    if (!pendingSend || !authLoaded) return;
+    if (!isSignedIn) {
+      setPendingSend(false);
+      sendCode();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSend, authLoaded, isSignedIn]);
+
   // ---- Stage 1: send the one-time code ----
   const sendCode = async () => {
     setError("");
@@ -113,6 +127,15 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     }
     if (!signIn || !signUp) {
       setError("Still loading. Please try again in a moment.");
+      return;
+    }
+    // An active Clerk session blocks starting a new code flow (Clerk
+    // rejects with "You're already signed in."). Sign out of the stale
+    // session first; the effect above retries the send once signed out.
+    if (authLoaded && isSignedIn) {
+      setPendingSend(true);
+      setIsSending(true);
+      clerk.signOut().catch(() => {});
       return;
     }
     setIsSending(true);
@@ -142,6 +165,12 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
         setFlow("signup");
         setStage("code");
         setIsSending(false);
+        return;
+      }
+      // Session appeared mid-flow (e.g. restored late) — sign out & retry.
+      if (isAlreadySignedInError(res.error)) {
+        setPendingSend(true);
+        clerk.signOut().catch(() => {});
         return;
       }
       setError(`We couldn't send the code to that email${describe(res.error)}`);
@@ -207,7 +236,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     }
   };
 
-  // ---- Stage 3: set password + roll number → backend account ----
+  // ---- Stage 3: set password → backend account → dashboard ----
   const completeRegistration = async () => {
     setError("");
     if (password.length < 12) {
@@ -216,10 +245,6 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     }
     if (password !== confirmPassword) {
       setError("Passwords do not match.");
-      return;
-    }
-    if (selectedRole === "student" && !rollNumber.trim()) {
-      setError("Enter your roll / enrollment number.");
       return;
     }
     setIsSubmitting(true);
@@ -250,7 +275,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
           confirmPassword,
           rollNumber: rollNumber.trim(),
           fullName: fullName.trim(),
-          role: selectedRole.toUpperCase(),
+          role: "CANDIDATE",
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -277,7 +302,11 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       }
 
       const role = String(user?.role || "STUDENT").toUpperCase();
-      window.location.href = DASHBOARDS[role] || "/student/dashboard";
+      // New candidates land on the application form (they are STUDENT-backed
+      // until an admin approves their application).
+      const dest =
+        role === "STUDENT" && rollNumber.trim() ? "/candidate/apply" : DASHBOARDS[role] || "/student/dashboard";
+      window.location.href = dest;
     } catch (err) {
       console.error("register complete:", err);
       setError("Unable to reach the server. Please check your connection and try again.");
@@ -285,19 +314,13 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     }
   };
 
-  const isCad = selectedRole === "cad";
-
   return (
     <AuthLayout>
       <AuthCard>
         <div className="text-center mb-6">
           <AuthHeader
             title={PORTAL_TITLES[portal]}
-            subtitle={
-              selectedRole === "student"
-                ? "Register as a student with your roll number"
-                : "Register as an election monitor (CAD)"
-            }
+            subtitle="Register to apply as a candidate — email, one-time code and a password"
           />
         </div>
 
@@ -322,80 +345,12 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
 
         {stage === "email" && (
           <div className="space-y-4">
-            {portal === "any" ? (
-              <div className="space-y-2.5">
-                <label className="text-sm font-semibold text-text-primary block">
-                  Register as
-                </label>
-                <div
-                  className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-2.5"
-                  role="radiogroup"
-                  aria-label="Register as"
-                >
-                  {(
-                    [
-                      {
-                        id: "cad" as const,
-                        label: "CAD",
-                        description: "Election monitor",
-                        icon: Mic,
-                      },
-                      {
-                        id: "student" as const,
-                        label: "Student",
-                        description: "Register with roll number",
-                        icon: GraduationCap,
-                      },
-                    ]
-                  ).map((role) => {
-                    const Icon = role.icon;
-                    const isActive = selectedRole === role.id;
-                    return (
-                      <button
-                        key={role.id}
-                        type="button"
-                        role="radio"
-                        aria-checked={isActive}
-                        onClick={() => {
-                          setSelectedRole(role.id);
-                          setError("");
-                          setNotice("");
-                        }}
-                        className={cn(
-                          "flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all duration-150 cursor-pointer text-center",
-                          isActive
-                            ? "border-primary-600 bg-primary-50 shadow-[0_2px_12px_rgba(248,0,0,0.12)]"
-                            : "border-border bg-white hover:border-primary-300 hover:bg-primary-50/50"
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
-                            isActive ? "bg-primary-600 text-white" : "bg-primary-50 text-primary-600"
-                          )}
-                        >
-                          <Icon className="w-5 h-5" />
-                        </div>
-                        <div className="space-y-0.5">
-                          <p className="text-sm font-semibold text-text-primary">{role.label}</p>
-                          <p className="text-xs text-text-muted">{role.description}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="text-xs text-text-secondary text-center">
-                  Administrator accounts are not self-registered — sign in at{" "}
-                  <Link href="/login/admin" className="text-primary-600 hover:text-primary-700 font-medium">
-                    /login/admin
-                  </Link>
-                </p>
-              </div>
-            ) : (
-              <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600 text-center">
-                Registering as <strong>{isCad ? "CAD (Election Monitor)" : "Student"}</strong>
-              </div>
-            )}
+            <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600 text-center flex items-center justify-center gap-2">
+              <Mic className="w-4 h-4 shrink-0" />
+              <span>
+                Registering as <strong>Candidate</strong>
+              </span>
+            </div>
 
             <div className="space-y-1.5">
               <label htmlFor="register-email" className="text-xs font-medium text-text-secondary">
@@ -428,6 +383,13 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
               Already have an account?{" "}
               <Link href="/login" className="text-primary-600 hover:text-primary-700 font-medium">
                 Sign in
+              </Link>
+            </p>
+            <p className="text-xs text-text-muted text-center">
+              Student registration is temporarily closed. Administrator accounts are not
+              self-registered — sign in at{" "}
+              <Link href="/login/admin" className="text-primary-600 hover:text-primary-700 font-medium">
+                /login/admin
               </Link>
             </p>
             {/* Clerk renders its invisible bot-protection CAPTCHA here when
@@ -501,8 +463,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
             <div className="p-3 bg-green-50 border border-green-100 rounded-lg text-sm text-green-800 flex items-start gap-2">
               <Mail className="w-4 h-4 mt-0.5 shrink-0" />
               <span>
-                <strong>{email}</strong> verified. Now choose a password
-                {selectedRole === "student" ? " and enter your details." : "."}
+                <strong>{email}</strong> verified. Now choose a password to finish.
               </span>
             </div>
             <Input
@@ -517,11 +478,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
             <div className="relative">
               <Input
                 id="register-roll"
-                label={
-                  selectedRole === "student"
-                    ? "Roll / enrollment number"
-                    : "Roll / enrollment number (optional)"
-                }
+                label="Roll / enrollment number (optional)"
                 type="text"
                 autoComplete="off"
                 placeholder="e.g. 0221IT211045"
