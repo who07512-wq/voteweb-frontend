@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { setBindingToken } from "@/lib/session-binding";
 import { setAuthCookie } from "@/lib/mock-auth";
+import { hasRollNumber } from "@/lib/roll-number";
 import type { UserRole } from "@/lib/auth-types";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
@@ -488,8 +489,21 @@ export function RoleLoginPage({
         CAD: "/cad/dashboard",
       };
       sessionStorage.removeItem("campusvote_bridged");
-      sessionStorage.setItem("campusvote_dest", dashboards[dbRole] || "/student/dashboard");
-      window.location.href = dashboards[dbRole] || "/student/dashboard";
+
+      // A student who signed up as a candidate (roll saved under either the
+      // candidate or student key) should be taken straight to the application
+      // form, matching the register and email-code flows — not the generic
+      // student dashboard.
+      const userEmail = String(user?.email || email).trim().toLowerCase();
+      let dest = dashboards[dbRole] || "/student/dashboard";
+      if (
+        dbRole === "STUDENT" &&
+        (hasRollNumber("candidate", userEmail) || hasRollNumber("student", userEmail))
+      ) {
+        dest = "/candidate/apply";
+      }
+      sessionStorage.setItem("campusvote_dest", dest);
+      window.location.href = dest;
     } catch (err) {
       console.error("Password login failed:", err);
       setError("Unable to reach the server. Please check your connection and try again.");
