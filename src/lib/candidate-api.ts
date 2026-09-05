@@ -20,8 +20,10 @@ export interface CandidateApplication {
   year: string;
   semester: string | null;
   section: string | null;
-  positionId: number;
+  positionId: number | null;
   positionName: string | null;
+  nominationClub: string | null;
+  contestingPosition: string | null;
   email: string;
   phone: string;
   profilePhotoUrl: string | null;
@@ -47,6 +49,8 @@ export interface CandidateApplicationData {
   year: string;
   section: string;
   position: string;
+  nominationClub: string | null;
+  contestingPosition: string | null;
   email: string;
   phone: string;
   photo: string | null;
@@ -148,7 +152,9 @@ export interface SubmitApplicationPayload {
   department: string;
   year: string;
   section?: string;
-  positionId: number;
+  positionId?: number | null;
+  nominationClub: string;
+  contestingPosition: string;
   email: string;
   phone: string;
   profilePhotoUrl?: string | null;
@@ -216,7 +222,9 @@ export function mapApplication(app: CandidateApplication): CandidateApplicationD
     department: app.department || "",
     year: app.year || "",
     section: app.section || "",
-    position: app.positionName || "",
+    position: app.contestingPosition || app.positionName || "",
+    nominationClub: app.nominationClub || null,
+    contestingPosition: app.contestingPosition || null,
     email: app.email || "",
     phone: app.phone || "",
     photo: app.profilePhotoUrl || null,

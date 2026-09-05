@@ -27,6 +27,8 @@ export default function CandidateProfilePage() {
     id: app.id,
     enrollmentNumber: app.enrollmentNumber,
     position: app.position,
+    nominationClub: app.nominationClub || null,
+    contestingPosition: app.contestingPosition || null,
     department: app.department,
     year: app.year,
     section: app.section,
@@ -45,6 +47,8 @@ export default function CandidateProfilePage() {
     id: "",
     enrollmentNumber: "",
     position: "",
+    nominationClub: null,
+    contestingPosition: null,
     department: "",
     year: "",
     section: "",
@@ -382,8 +386,12 @@ export default function CandidateProfilePage() {
                       <p className="text-sm font-semibold text-text-primary">{profile.section}</p>
                     </div>
                     <div className="p-3 rounded-xl bg-bg-tertiary">
+                      <p className="text-[10px] text-text-secondary uppercase tracking-wider mb-1">Nomination For Club 🔒</p>
+                      <p className="text-sm font-semibold text-text-primary">{profile.nominationClub || "—"}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-bg-tertiary">
                       <p className="text-[10px] text-text-secondary uppercase tracking-wider mb-1">Position 🔒</p>
-                      <p className="text-sm font-semibold text-text-primary">{profile.position}</p>
+                      <p className="text-sm font-semibold text-text-primary">{profile.contestingPosition || profile.position}</p>
                     </div>
                     <div className="p-3 rounded-xl bg-bg-tertiary">
                       <p className="text-[10px] text-text-secondary uppercase tracking-wider mb-1">Age 🔒</p>

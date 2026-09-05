@@ -9,12 +9,33 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import {
   submitApplication,
-  listPositions,
-  type PositionOption,
 } from "@/lib/candidate-api";
 import { getRollNumber } from "@/lib/roll-number";
 
 const DEPARTMENT_OPTIONS = ["BBA", "BCA", "BCOM", "MBA", "MCA"];
+
+/** Official club nomination form — Nomination For Club (required). */
+const NOMINATION_CLUBS = [
+  "SAHITYASHALA (LITERATURE AND POETRY CLUB) & RACHNAKAR (CREATIVE CLUB)",
+  "BOSCO SPARTANS (SPORTS CLUB)",
+  "PUBLICATION COMMITTEE",
+  "ECO CLUB",
+  "TECHNO SPARKS (TECHNO CLUB)",
+  "AARAMBH (ENTREPRENEURSHIP CLUB)",
+  "SOCIAL SYNERGY (SOCIAL MEDIA CLUB)",
+  "SOCIAL OUTREACH (PARIVARTAN CLUB)",
+  "CO-CURRICULAR & EXTRA CO-CURRICULAR ACTIVITIES CLUB",
+  "JHANKAAR (CULTURAL CLUB)",
+];
+
+/** Official club nomination form — Applied for the Position (required). */
+const CONTESTING_POSITIONS = [
+  "Vice President (Batch 2020)",
+  "Secretary (Batch 2021)",
+];
+
+const DECLARATION_TEXT =
+  "I hereby declare that all the information given above is true and I agree that my candidature will stand disqualified if any of the above information is found to be false or misrepresented. I also agree to abide by the Guidelines of Bosco Technical Training Society Affiliated to Guru Gobind Singh Indraprastha University.";
 
 const YEAR_OPTIONS = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
 
@@ -40,7 +61,8 @@ interface FormData {
   department: string;
   year: string;
   section: string;
-  positionId: string;
+  nominationClub: string;
+  contestingPosition: string;
   email: string;
   phone: string;
   photo: string | null;
@@ -50,6 +72,7 @@ interface FormData {
   dateOfBirth: string;
   gender: string;
   aadharNumber: string;
+  declaration: string;
 }
 
 interface FormErrors {
@@ -62,7 +85,8 @@ const INITIAL_FORM: FormData = {
   department: "",
   year: "",
   section: "",
-  positionId: "",
+  nominationClub: "",
+  contestingPosition: "",
   email: "",
   phone: "",
   photo: null,
@@ -72,13 +96,12 @@ const INITIAL_FORM: FormData = {
   dateOfBirth: "",
   gender: "",
   aadharNumber: "",
+  declaration: "",
 };
 
 export default function CandidateApplyPage() {
   const router = useRouter();
   const { user } = useUser();
-  const [positions, setPositions] = useState<PositionOption[]>([]);
-  const [positionsLoading, setPositionsLoading] = useState(true);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [formData, setFormData] = useState<FormData>(INITIAL_FORM);
   const [errors, setErrors] = useState<FormErrors>({});
@@ -141,7 +164,8 @@ export default function CandidateApplyPage() {
     if (!formData.department) newErrors.department = "Department is required";
     if (!formData.year) newErrors.year = "Year is required";
     if (!formData.section) newErrors.section = "Section is required";
-    if (!formData.positionId) newErrors.positionId = "Position is required";
+    if (!formData.nominationClub) newErrors.nominationClub = "Please select the club you are nominating for";
+    if (!formData.contestingPosition) newErrors.contestingPosition = "Please select the position you are applying for";
     if (!formData.age.trim()) newErrors.age = "Age is required";
     if (!formData.dateOfBirth.trim()) newErrors.dateOfBirth = "Date of birth is required";
     if (!formData.gender) newErrors.gender = "Gender is required";
@@ -180,6 +204,9 @@ export default function CandidateApplyPage() {
     } else if (formData.manifesto.length > 2000) {
       newErrors.manifesto = "Manifesto must be 2000 characters or fewer";
     }
+    if (formData.declaration.trim().toUpperCase() !== "CONFIRM") {
+      newErrors.declaration = 'Please type “CONFIRM” exactly to submit your application';
+    }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -194,31 +221,13 @@ export default function CandidateApplyPage() {
     else if (step === 2) setStep(1);
   };
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const list = await listPositions();
-        if (alive) setPositions(list);
-      } catch {
-        // positions stay empty -> form shows an error state below
-      } finally {
-        if (alive) setPositionsLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const positionName = positions.find(
-    (p) => String(p.id) === formData.positionId
-  )?.name;
-
   const handleSubmit = async () => {
     if (!validateStep3()) return;
-    if (!formData.positionId) {
-      setErrors({ positionId: "Position is required" });
+    if (!formData.nominationClub || !formData.contestingPosition) {
+      setErrors({
+        nominationClub: !formData.nominationClub ? "Please select the club you are nominating for" : "",
+        contestingPosition: !formData.contestingPosition ? "Please select the position you are applying for" : "",
+      });
       return;
     }
     setIsSubmitting(true);
@@ -229,7 +238,8 @@ export default function CandidateApplyPage() {
         department: formData.department,
         year: formData.year,
         section: formData.section,
-        positionId: Number(formData.positionId),
+        nominationClub: formData.nominationClub,
+        contestingPosition: formData.contestingPosition,
         email: formData.email.trim(),
         phone: formData.phone.trim(),
         profilePhotoUrl: formData.photo,
@@ -278,8 +288,12 @@ export default function CandidateApplyPage() {
                   <span className="font-medium text-text-primary">{formData.name}</span>
                 </div>
                 <div className="flex justify-between text-sm">
+                  <span className="text-text-secondary">Club</span>
+                  <span className="font-medium text-text-primary text-right max-w-[220px]">{formData.nominationClub || "—"}</span>
+                </div>
+                <div className="flex justify-between text-sm">
                   <span className="text-text-secondary">Position</span>
-                  <span className="font-medium text-text-primary">{positionName || "—"}</span>
+                  <span className="font-medium text-text-primary">{formData.contestingPosition || "—"}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-text-secondary">Status</span>
@@ -373,7 +387,7 @@ export default function CandidateApplyPage() {
               <div className="bg-info-50 border border-info-100 rounded-xl p-4 text-sm text-info-700">
               <p className="font-medium">Important</p>
               <p className="mt-1 text-xs text-info-600">
-                Verified information (name, enrollment number, age, DOB, gender, Aadhar, department, year, section, position) will be
+                Verified information (name, enrollment number, age, DOB, gender, Aadhar, department, year, section, club and position) will be
                 frozen after approval and cannot be changed.
               </p>
             </div>
@@ -486,27 +500,51 @@ export default function CandidateApplyPage() {
                     <p className="text-xs text-error-600 mt-1">{errors.section}</p>
                   )}
                 </div>
+              </div>
+
+              {/* Club & Society Details — official nomination form fields */}
+              <div className="bg-bg-tertiary rounded-xl p-4 space-y-4">
+                <p className="text-sm font-semibold text-text-primary">Club & Society Details</p>
 
                 <div>
                   <label className="block text-xs font-medium text-text-secondary mb-1.5">
-                    Position Contesting <span className="text-error-500">*</span>
+                    Nomination For Club <span className="text-error-500">*</span>
                   </label>
                   <select
-                    value={formData.positionId}
-                    onChange={(e) => handleChange("positionId", e.target.value)}
+                    value={formData.nominationClub}
+                    onChange={(e) => handleChange("nominationClub", e.target.value)}
                     className={`w-full px-4 py-2.5 rounded-xl border text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                      errors.positionId ? "border-error-500" : "border-border"
+                      errors.nominationClub ? "border-error-500" : "border-border"
                     }`}
                   >
-                    <option value="">
-                      {positionsLoading ? "Loading positions..." : "Select position"}
-                    </option>
-                    {positions.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
+                    <option value="">Select club</option>
+                    {NOMINATION_CLUBS.map((club) => (
+                      <option key={club} value={club}>{club}</option>
                     ))}
                   </select>
-                  {errors.positionId && (
-                    <p className="text-xs text-error-600 mt-1">{errors.positionId}</p>
+                  {errors.nominationClub && (
+                    <p className="text-xs text-error-600 mt-1">{errors.nominationClub}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1.5">
+                    Applied for the Position <span className="text-error-500">*</span>
+                  </label>
+                  <select
+                    value={formData.contestingPosition}
+                    onChange={(e) => handleChange("contestingPosition", e.target.value)}
+                    className={`w-full px-4 py-2.5 rounded-xl border text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500 ${
+                      errors.contestingPosition ? "border-error-500" : "border-border"
+                    }`}
+                  >
+                    <option value="">Select position</option>
+                    {CONTESTING_POSITIONS.map((pos) => (
+                      <option key={pos} value={pos}>{pos}</option>
+                    ))}
+                  </select>
+                  {errors.contestingPosition && (
+                    <p className="text-xs text-error-600 mt-1">{errors.contestingPosition}</p>
                   )}
                 </div>
               </div>
@@ -778,7 +816,7 @@ export default function CandidateApplyPage() {
                 rows={6}
                 placeholder="Describe your vision, goals and what you plan to achieve if elected (max 2000 characters)"
                 className={`w-full px-4 py-2.5 rounded-xl border text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none ${
-                  errors.mANIfesto ? "border-error-500" : "border-border"
+                  errors.manifesto ? "border-error-500" : "border-border"
                 }`}
               />
               <div className="flex justify-between items-center mt-1">
@@ -789,6 +827,29 @@ export default function CandidateApplyPage() {
                   {formData.manifesto.length} / 2000
                 </p>
               </div>
+            </div>
+
+            {/* Declaration + CONFIRM gate — matches official nomination form */}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-amber-800">
+                Declaration
+              </p>
+              <p className="text-xs text-amber-800 leading-relaxed">
+                {DECLARATION_TEXT} Please write <span className="font-bold">“CONFIRM”</span> to send
+                the application for review. <span className="text-error-500">*</span>
+              </p>
+              <input
+                type="text"
+                value={formData.declaration}
+                onChange={(e) => handleChange("declaration", e.target.value)}
+                placeholder="Type CONFIRM to proceed"
+                className={`w-full px-4 py-2.5 rounded-xl border text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 ${
+                  errors.declaration ? "border-error-500" : "border-border"
+                }`}
+              />
+              {errors.declaration && (
+                <p className="text-xs text-error-600">{errors.declaration}</p>
+              )}
             </div>
 
             {errors.general && (
