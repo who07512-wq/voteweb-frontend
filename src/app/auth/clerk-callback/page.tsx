@@ -21,7 +21,9 @@ const PORTAL_ROLES_ALLOWED: Record<string, string[]> = {
   student: ["STUDENT"],
   candidate: ["CANDIDATE", "STUDENT"],
   administrator: ["ADMIN"],
-  cad: ["CAD"],
+  // CAD portal is OPEN: anyone with a Google account can sign in here and
+  // is granted CAD by the backend. Only the ADMIN portal is whitelisted.
+  cad: ["CAD", "STUDENT", "CANDIDATE"],
 };
 
 /**

@@ -43,8 +43,8 @@ export function RoleLoginPage({
   const [isLoading, setIsLoading] = useState(false);
   const [notice, setNotice] = useState(
     portal === "any" ? "" :
-    portal === "admin" ? "Administrator access only — unauthorized sign-in attempts are logged."
-    : portal === "cad" ? "CAD (election monitor) access only — unauthorized sign-in attempts are logged."
+    portal === "admin" ? "Administrator access only — only whitelisted email addresses can sign in here."
+    : portal === "cad" ? "Election monitor portal — anyone with a Google account can sign in. Only the Admin portal is restricted to whitelisted emails."
     : ""
   );
   const [error, setError] = useState("");
