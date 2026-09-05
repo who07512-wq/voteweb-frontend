@@ -27,11 +27,13 @@ const PORTAL_ROLES_ALLOWED: Record<string, string[]> = {
 };
 
 /**
- * Clerk OAuth callback + backend session bridge.
+ * Clerk auth callback + backend session bridge.
  *
- * 1. <AuthenticateWithRedirectCallback /> completes the Google OAuth handshake.
- * 2. The Clerk session is exchanged for a backend session (cv_sid cookie) via
- *    POST /auth/clerk-session.
+ * Works for both sign-in methods that end with a Clerk session:
+ * email-code (OTP) and OAuth/Google. 1. Any pending OAuth handshake is
+ * completed by <AuthenticateWithRedirectCallback />; email-code sign-ins
+ * arrive here already signed in. 2. The Clerk session is exchanged for a
+ * backend session (cv_sid cookie) via POST /auth/clerk-session.
  * 3. PORTAL ROLE ENFORCEMENT: the role chosen on the login portal is checked
  *    against the role the backend database reports. A mismatch (e.g. a student
  *    using /login/admin) is rejected: the backend session is destroyed and the
@@ -101,7 +103,7 @@ function ClerkCallbackInner() {
           user.primaryEmailAddress?.emailAddress ||
           user.emailAddresses?.[0]?.emailAddress;
         if (!primaryEmail) {
-          setErrorMsg("Your Google account has no email address to sign in with.");
+          setErrorMsg("Your account has no email address to sign in with.");
           setStep("error");
           return;
         }
@@ -264,7 +266,7 @@ function ClerkCallbackInner() {
                 {step === "bridging" ? "Setting up your session..." : "Completing sign-in..."}
               </h2>
               <p className="text-sm text-gray-500">
-                {step === "bridging" ? "Connecting your Google account to CampusVote" : "Verifying your Google account"}
+                {step === "bridging" ? "Connecting your account to CampusVote" : "Verifying your account"}
               </p>
             </>
           )}

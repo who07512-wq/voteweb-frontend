@@ -1,24 +1,49 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import Link from "next/link";
-import { useSignIn, useClerk } from "@clerk/nextjs";
-import { HelpCircle, Loader2, ShieldAlert } from "lucide-react";
+import { useSignIn, useSignUp, useAuth } from "@clerk/nextjs";
+import { HelpCircle, Loader2, ShieldAlert, Mail, KeyRound } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
 import { AuthHeader } from "@/components/auth/AuthHeader";
 import { RoleSelector } from "@/components/auth/RoleSelector";
+import { Input } from "@/components/ui/Input";
+import { Button } from "@/components/ui/Button";
+import { setBindingToken } from "@/lib/session-binding";
+import { setAuthCookie } from "@/lib/mock-auth";
 import type { UserRole } from "@/lib/auth-types";
 
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+
+const PORTAL_ROLE_KEY: Record<string, string> = {
+  any: "",
+  student: "student",
+  cad: "cad",
+  admin: "administrator",
+};
+
+const ROLE_LABEL: Record<string, string> = {
+  student: "Student",
+  candidate: "Candidate",
+  cad: "CAD",
+  administrator: "Administrator",
+};
+
 /**
- * Shared login portal implementation used by /login, /login/student,
- * /login/cad and /login/admin. The `portal` prop preselects (and for
- * non-student portals locks) the role; the backend still verifies the
- * DB role after Google returns.
+ * Shared login portal used by /login, /login/student, /login/cad and
+ * /login/admin. The `portal` prop preselects (and for non-student portals
+ * locks) the role; the backend still verifies the DB role after sign-in.
  *
- * Google sign-in is resilient: it tries Clerk's signal-based sso() API
- * first, then the classic authenticateWithRedirect(), then Clerk's
- * hosted sign-in page — so a single API hiccup never blocks sign-in.
+ * Two sign-in methods:
+ *
+ * 1. EMAIL CODE (student / candidate / CAD portals, and the "any" main page
+ *    for non-administrator roles). The user enters their email and Clerk
+ *    emails a one-time code. Accounts are created on the fly for new emails
+ *    (the CAD portal is open), so there is no invite gate for these portals.
+ *
+ * 2. FIXED EMAIL + PASSWORD (Admin portal). The email must be in ADMIN_EMAILS
+ *    and the password must match ADMIN_PORTAL_PASSWORD (checked server-side).
+ *    No Clerk involvement.
  */
 export function RoleLoginPage({
   portal,
@@ -28,8 +53,10 @@ export function RoleLoginPage({
   initialRole?: UserRole;
 }) {
   const { signIn } = useSignIn();
-  const clerk = useClerk();
-  const isLoaded = Boolean(signIn);
+  const { signUp } = useSignUp();
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
+
+  // Effective role: locked by the portal, or chosen on the "any" page.
   const [selectedRole, setSelectedRole] = useState<UserRole>(
     initialRole ||
       (portal === "student"
@@ -40,14 +67,31 @@ export function RoleLoginPage({
             ? "administrator"
             : "student")
   );
-  const [isLoading, setIsLoading] = useState(false);
+
+  // Admin password login uses a separate credential path (no Clerk).
+  const isAdminFlow =
+    portal === "admin" || selectedRole === "administrator";
+
+  // Email-code flow state
+  const [stage, setStage] = useState<"email" | "code">("email");
+  const [flow, setFlow] = useState<"signin" | "signup" | null>(null);
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
   const [notice, setNotice] = useState(
-    portal === "any" ? "" :
-    portal === "admin" ? "Administrator access only — only whitelisted email addresses can sign in here."
-    : portal === "cad" ? "Election monitor portal — anyone with a Google account can sign in. Only the Admin portal is restricted to whitelisted emails."
-    : ""
+    portal === "admin"
+      ? "Administrator access only — only listed administrator emails can sign in."
+      : portal === "cad"
+        ? "Election monitor portal — anyone with an email address can sign in with a one-time code. Only the Admin portal is restricted."
+        : ""
   );
   const [error, setError] = useState("");
+
+  // Admin password fields
+  const [adminEmail, setAdminEmail] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [isAdminLoggingIn, setIsAdminLoggingIn] = useState(false);
 
   useEffect(() => {
     // Surface role-mismatch rejections relayed by the callback page
@@ -55,7 +99,7 @@ export function RoleLoginPage({
     if (flagged) {
       setNotice("");
       setError(
-        "This Google account is not authorized for this portal. Sign in from the correct portal for your role."
+        "This account is not authorized for this portal. Sign in from the correct portal for your role."
       );
       sessionStorage.removeItem("campusvote_role_mismatch");
     }
@@ -68,121 +112,249 @@ export function RoleLoginPage({
     return `${code}${message}`;
   };
 
-  const startGoogleSignIn = async () => {
-    setError("");
-    if (!signIn || !clerk) {
-      setError("Sign-in is still loading. Please try again in a moment.");
-      return;
-    }
-    setIsLoading(true);
-    sessionStorage.setItem("campusvote_login_role", selectedRole);
-    // Tell the callback page an OAuth flow is genuinely in progress. Clerk
-    // navigates back to the callback URL a second time (no query params) after
-    // completing the handshake; without this flag the callback would treat
-    // that second visit as a stray direct visit and bounce the user to /login.
+  const isNotFoundError = (err: unknown): boolean => {
+    const code = String((err as { code?: string } | null)?.code || "");
+    return (
+      code.includes("identifier_not_found") ||
+      code.includes("form_identifier_not_found") ||
+      code.includes("not_found")
+    );
+  };
+
+  const setRoleFlags = () => {
+    const roleKey = selectedRole;
+    sessionStorage.setItem("campusvote_login_role", roleKey);
     sessionStorage.setItem("campusvote_oauth_started", "1");
     sessionStorage.removeItem("campusvote_bridged");
     sessionStorage.removeItem("campusvote_dest");
+  };
 
-    // If a Clerk session is ALREADY active (e.g. the user completed sign-in
-    // earlier but landed back on /login), starting a brand-new OAuth flow via
-    // signIn.sso() fails with "sign failed" — Clerk refuses to create a new
-    // sign-in while a session exists. In that case skip the Google round-trip
-    // entirely and go straight to the callback, which re-bridges the existing
-    // session and routes by the database role.
-    if (clerk.session?.id || clerk.session) {
-      window.location.href = `${window.location.origin}/auth/clerk-callback`;
+  const goToCallback = () => {
+    window.location.href = `${window.location.origin}/auth/clerk-callback`;
+  };
+
+  // If a Clerk session is ALREADY active (signed in earlier but landed back on
+  // /login), skip the round-trip and bridge straight to the backend session.
+  const bounceExistingSession = () => {
+    if (isAdminFlow) return false;
+    if (authLoaded && isSignedIn) {
+      setRoleFlags();
+      goToCallback();
+      return true;
+    }
+    return false;
+  };
+
+  const sendEmailCode = async () => {
+    setError("");
+    if (!email || !email.includes("@")) {
+      setError("Enter a valid email address to continue.");
       return;
     }
-
-    // ABSOLUTE URLs matter: when the flow falls through to Clerk's hosted
-    // page (accounts.dev), relative URLs get resolved against the Clerk
-    // origin and the user ends up on Clerk's dead-end default-redirect page.
-    // Forcing the complete URL back to our own origin guarantees the user
-    // always lands on the app's callback, which then routes by DB role.
-    const callbackUrl = `${window.location.origin}/auth/clerk-callback`;
-    const options = {
-      strategy: "oauth_google" as const,
-      redirectUrl: callbackUrl,
-      redirectCallbackUrl: callbackUrl,
-    };
-
-    // Attempt 1: DIRECT full-page navigation to the Clerk hosted sign-in URL
-    // (MOST RELIABLE — this is the one that works on phones too). We build
-    // the exact sign-in URL with clerk.buildSignInUrl() and navigate with a
-    // plain window.location.href. No dependence on in-memory Clerk navigation
-    // state, popups, or router internals — a hard page load always happens on
-    // every device. signIn.sso() is NOT used as the primary path because it
-    // can silently resolve WITHOUT navigating when a stale sign-in attempt
-    // exists in the Clerk session, which makes the button appear dead.
-    // Force the return URLs so the instance's broken default-redirect is
-    // never used and the user always comes back to our callback.
-    try {
-      const builder = clerk as unknown as {
-        buildSignInUrl?: (o: Record<string, unknown>) => string;
-        redirectToSignIn?: (o?: Record<string, unknown>) => void;
-      };
-      if (typeof builder.buildSignInUrl === "function") {
-        const url = builder.buildSignInUrl({
-          signInForceRedirectUrl: callbackUrl,
-          signInFallbackRedirectUrl: callbackUrl,
-        });
-        if (url && url.startsWith("http")) {
-          window.location.href = url;
-          return;
-        }
-      }
-    } catch (err) {
-      console.error("Google sign-in (buildSignInUrl) failed:", err);
-    }
-
-    // Attempt 2: Clerk hosted redirect via the in-memory object. Reached only
-    // if buildSignInUrl was unavailable; performs a real navigation to the
-    // Clerk sign-in page, which then offers Google.
-    try {
-      const hosted = clerk as unknown as {
-        redirectToSignIn: (o?: Record<string, unknown>) => void;
-      };
-      hosted.redirectToSignIn({
-        signInForceRedirectUrl: callbackUrl,
-        signInFallbackRedirectUrl: callbackUrl,
-      });
+    if (!signIn || !signUp) {
+      setError("Sign-in is still loading. Please try again in a moment.");
       return;
-    } catch (err) {
-      console.error("Google sign-in (hosted) failed:", err);
     }
-
-    // Attempt 3: signal-based sso() — direct Google flow. Only reached if
-    // both hosted paths threw. Guarded so a resolve-without-navigation
-    // (stale sign-in) can't be mistaken for success: we wait a moment and
-    // fall through to the error message if no navigation started.
+    setIsSending(true);
     try {
-      const res = (await signIn.sso(options)) as { error?: unknown } | undefined;
-      if (res?.error) {
-        console.error("Google sign-in (sso) failed:", res.error);
-      } else {
-        // Assume the browser is navigating to Google. Give it a beat; if
-        // nothing happened (stale sign-in silent no-op), report it instead
-        // of leaving the button dead.
-        setTimeout(() => {
-          if (document.visibilityState !== "hidden") {
-            setError(
-              "Google sign-in did not open. Please try again — if it keeps failing, refresh the page first."
-            );
-            setIsLoading(false);
-          }
-        }, 3000);
+      setRoleFlags();
+      const normalized = email.trim().toLowerCase();
+
+      // Attempt 1: the email belongs to an existing Clerk account → sign in.
+      const res = await signIn.emailCode.sendCode({ emailAddress: normalized });
+      if (!res?.error) {
+        setFlow("signin");
+        setStage("code");
+        setIsSending(false);
         return;
       }
-    } catch (err) {
-      console.error("Google sign-in (sso) threw:", err);
-    }
 
-    setError(
-      "Google sign-in could not be started. Please refresh the page and try again — if it keeps failing, check that you are visiting the official site URL."
-    );
-    setIsLoading(false);
+      // Attempt 2: brand-new email → create the account (email-code sign-up).
+      if (isNotFoundError(res.error)) {
+        const up = await signUp.create({ emailAddress: normalized });
+        if (up?.error) {
+          console.error("Email code (sign-up create) failed:", up.error);
+          setError(
+            `We couldn't start sign-in for that email${describe(up.error)}`
+          );
+          setIsSending(false);
+          return;
+        }
+        const sent = await signUp.verifications.sendEmailCode();
+        if (sent?.error) {
+          console.error("Email code (send, sign-up) failed:", sent.error);
+          setError(
+            `We couldn't send the code to that email${describe(sent.error)}`
+          );
+          setIsSending(false);
+          return;
+        }
+        setFlow("signup");
+        setStage("code");
+        setIsSending(false);
+        return;
+      }
+
+      // Any other error (rate limit, blocked address, etc.)
+      console.error("Email code (sign-in) failed:", res.error);
+      setError(
+        `We couldn't send the code to that email${describe(res.error)}`
+      );
+      setIsSending(false);
+    } catch (err) {
+      console.error("sendEmailCode threw:", err);
+      setError(
+        "We couldn't send the code. Please check your connection and try again."
+      );
+      setIsSending(false);
+    }
   };
+
+  const verifyEmailCode = async () => {
+    setError("");
+    if (!code || code.trim().length < 4) {
+      setError("Enter the code you received by email.");
+      return;
+    }
+    setIsVerifying(true);
+    try {
+      const trimmed = code.trim();
+
+      if (flow === "signup" && signUp) {
+        const res = await signUp.verifications.verifyEmailCode({
+          code: trimmed,
+        });
+        if (res?.error) {
+          setError(`The code was not accepted${describe(res.error)}`);
+          setIsVerifying(false);
+          return;
+        }
+        if (signUp.status === "complete") {
+          const fin = await signUp.finalize();
+          if (fin?.error) {
+            setError(`Sign-in could not be completed${describe(fin.error)}`);
+            setIsVerifying(false);
+            return;
+          }
+          goToCallback();
+          return;
+        }
+        setError("Verification is not complete. Please try again.");
+        setIsVerifying(false);
+        return;
+      }
+
+      if (signIn) {
+        const res = await signIn.emailCode.verifyCode({ code: trimmed });
+        if (res?.error) {
+          setError(`The code was not accepted${describe(res.error)}`);
+          setIsVerifying(false);
+          return;
+        }
+        if (signIn.status === "complete") {
+          const fin = await signIn.finalize();
+          if (fin?.error) {
+            setError(`Sign-in could not be completed${describe(fin.error)}`);
+            setIsVerifying(false);
+            return;
+          }
+          goToCallback();
+          return;
+        }
+        setError("Verification is not complete. Please try again.");
+        setIsVerifying(false);
+        return;
+      }
+
+      setError("Sign-in is still loading. Please try again.");
+      setIsVerifying(false);
+    } catch (err) {
+      console.error("verifyEmailCode threw:", err);
+      setError("Something went wrong verifying the code. Please try again.");
+      setIsVerifying(false);
+    }
+  };
+
+  const resendCode = () => {
+    if (flow === "signup" && signUp) {
+      signUp.verifications.sendEmailCode().catch(() => {});
+    } else if (signIn) {
+      signIn.emailCode.sendCode({}).catch(() => {});
+    }
+    setCode("");
+    setError("");
+    setNotice("A new code has been sent to your email.");
+  };
+
+  // ---- Admin fixed email + password ----
+  const adminLogin = async () => {
+    setError("");
+    if (!adminEmail || !adminEmail.includes("@") || !adminPassword) {
+      setError("Enter both your administrator email and password.");
+      return;
+    }
+    setIsAdminLoggingIn(true);
+    try {
+      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, {
+        credentials: "include",
+      });
+      const csrfData = await csrfRes.json();
+      const csrfToken = csrfData.data?.csrfToken || "";
+
+      const res = await fetch(`${API_BASE}/auth/admin-portal-login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          email: adminEmail.trim().toLowerCase(),
+          password: adminPassword,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setError(
+          data.error?.message ||
+            "Sign-in failed. Check your email and password."
+        );
+        setIsAdminLoggingIn(false);
+        return;
+      }
+
+      if (data.data?.bindingToken) {
+        setBindingToken(data.data.bindingToken);
+      }
+      const user = data.data?.user;
+      if (user?.name) {
+        setAuthCookie("administrator", user.name, user.email || adminEmail);
+      }
+      sessionStorage.removeItem("campusvote_bridged");
+      sessionStorage.setItem("campusvote_dest", "/admin/dashboard");
+      window.location.href = "/admin/dashboard";
+    } catch (err) {
+      console.error("Admin login failed:", err);
+      setError(
+        "Unable to reach the server. Please check your connection and try again."
+      );
+      setIsAdminLoggingIn(false);
+    }
+  };
+
+  // If we land here with an existing Clerk session on a non-admin portal, just
+  // re-bridge (don't force the user through a new code round-trip).
+  useEffect(() => {
+    if (!authLoaded || isAdminFlow) return;
+    if (isSignedIn) {
+      setRoleFlags();
+      goToCallback();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoaded, isSignedIn, isAdminFlow]);
+
+  const roleKey = isAdminFlow ? "administrator" : selectedRole;
 
   return (
     <AuthLayout>
@@ -190,12 +362,19 @@ export function RoleLoginPage({
         <div className="text-center mb-6">
           <AuthHeader
             title={
-              portal === "admin" ? "Admin Portal" :
-              portal === "cad" ? "CAD Portal" :
-              portal === "student" ? "Student Portal" :
-              "Sign In"
+              portal === "admin"
+                ? "Admin Portal"
+                : portal === "cad"
+                  ? "CAD Portal"
+                  : portal === "student"
+                    ? "Student Portal"
+                    : "Sign In"
             }
-            subtitle="Use your institute Google account to continue"
+            subtitle={
+              isAdminFlow
+                ? "Administrator sign in with your institute email and password"
+                : "Enter your email and we will send you a one-time code"
+            }
           />
         </div>
 
@@ -210,51 +389,175 @@ export function RoleLoginPage({
           </div>
         )}
 
-        <div className="space-y-4">
-          {portal === "any" ? (
-            <RoleSelector selectedRole={selectedRole} onSelect={setSelectedRole} />
-          ) : (
+        {isAdminFlow ? (
+          <div className="space-y-4">
             <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600 text-center">
-              Signing in as <strong>{selectedRole}</strong>
+              Signing in as <strong>Administrator</strong>
             </div>
-          )}
 
-          <button
-            onClick={startGoogleSignIn}
-            disabled={isLoading || !isLoaded}
-            className="w-full flex items-center justify-center gap-3 py-2.5 px-4 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {isLoading ? (
-              <span className="flex items-center gap-2 text-gray-700">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Redirecting to Google...
-              </span>
+            <Input
+              id="admin-email"
+              label="Administrator email"
+              type="email"
+              autoComplete="username"
+              placeholder="admin@example.com"
+              value={adminEmail}
+              onChange={(e) => setAdminEmail(e.target.value)}
+            />
+            <Input
+              id="admin-password"
+              label="Password"
+              type="password"
+              autoComplete="current-password"
+              placeholder="Enter your password"
+              value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") adminLogin();
+              }}
+            />
+
+            <Button
+              onClick={adminLogin}
+              disabled={isAdminLoggingIn}
+              isLoading={isAdminLoggingIn}
+              className="w-full"
+            >
+              {!isAdminLoggingIn && (
+                <>
+                  <KeyRound className="w-4 h-4" />
+                  Sign in to Admin
+                </>
+              )}
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {portal === "any" && selectedRole !== "cad" ? (
+              <RoleSelector
+                selectedRole={selectedRole}
+                onSelect={(role) => {
+                  setSelectedRole(role);
+                  setError("");
+                  setNotice("");
+                }}
+              />
+            ) : (
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600 text-center">
+                Signing in as <strong>{ROLE_LABEL[roleKey] || selectedRole}</strong>
+              </div>
+            )}
+
+            {stage === "email" ? (
+              <>
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="email-code-email"
+                    className="text-xs font-medium text-text-secondary"
+                  >
+                    Email address
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      id="email-code-email"
+                      type="email"
+                      autoComplete="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") sendEmailCode();
+                      }}
+                      className="flex-1 px-4 py-2.5 text-sm bg-white dark:bg-[#252540] border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    />
+                    <Button
+                      onClick={sendEmailCode}
+                      disabled={isSending}
+                      isLoading={isSending}
+                    >
+                      {!isSending && "Send code"}
+                    </Button>
+                  </div>
+                </div>
+                <div id="clerk-captcha" />
+              </>
             ) : (
               <>
-                <svg className="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
-                  <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z" />
-                  <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z" />
-                  <path fill="#FBBC05" d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.98-3.09z" />
-                  <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75z" />
-                </svg>
-                <span className="text-gray-700 font-medium">Continue with Google</span>
+                <div className="p-3 bg-primary-50 border border-primary-100 rounded-lg text-sm text-primary-800 flex items-start gap-2">
+                  <Mail className="w-4 h-4 mt-0.5 shrink-0" />
+                  <span>
+                    We sent a one-time code to{" "}
+                    <strong>{email}</strong>. Enter it below to continue.
+                  </span>
+                </div>
+                <Input
+                  id="email-code-input"
+                  label="One-time code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="123456"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ""))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") verifyEmailCode();
+                  }}
+                />
+                <Button
+                  onClick={verifyEmailCode}
+                  disabled={isVerifying}
+                  isLoading={isVerifying}
+                  className="w-full"
+                >
+                  {!isVerifying && "Verify & Sign In"}
+                </Button>
+                <div className="flex items-center justify-between text-xs text-text-secondary">
+                  <button
+                    type="button"
+                    onClick={resendCode}
+                    className="text-primary-600 hover:text-primary-700 font-medium"
+                  >
+                    Resend code
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStage("email");
+                      setCode("");
+                      setFlow(null);
+                      setError("");
+                      setNotice("");
+                    }}
+                    className="text-text-muted hover:text-text-secondary font-medium"
+                  >
+                    Use a different email
+                  </button>
+                </div>
               </>
             )}
-          </button>
 
-          <div className="flex items-center justify-between text-xs text-text-secondary pt-1">
-            <Link href="/access-request" className="hover:text-primary-600 transition-colors">
-              Request voting access
-            </Link>
-            <Link href="/email-recovery" className="hover:text-primary-600 transition-colors">
-              Can&apos;t access your registered email?
-            </Link>
+            <div className="flex items-center justify-between text-xs text-text-secondary pt-1">
+              <a
+                href="/access-request"
+                className="hover:text-primary-600 transition-colors"
+              >
+                Request voting access
+              </a>
+              <a
+                href="/email-recovery"
+                className="hover:text-primary-600 transition-colors"
+              >
+                Can&apos;t access your registered email?
+              </a>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="mt-6 pt-4 border-t border-border text-xs text-text-secondary text-center flex items-center justify-center gap-1.5">
           <ShieldAlert className="w-3.5 h-3.5" />
-          Secured by Clerk — your Google password is never shared with CampusVote
+          {isAdminFlow
+            ? "Admin sign-in is protected — only listed administrators can access this portal"
+            : "Secured by Clerk — your code is emailed to you and never shared with CampusVote"}
           <HelpCircle className="w-3 h-3 opacity-50" />
         </div>
       </AuthCard>
