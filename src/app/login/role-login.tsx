@@ -20,12 +20,25 @@ import type { UserRole } from "@/lib/auth-types";
  * first, then the classic authenticateWithRedirect(), then Clerk's
  * hosted sign-in page — so a single API hiccup never blocks sign-in.
  */
-export function RoleLoginPage({ portal }: { portal: "any" | "student" | "cad" | "admin" }) {
+export function RoleLoginPage({
+  portal,
+  initialRole,
+}: {
+  portal: "any" | "student" | "cad" | "admin";
+  initialRole?: UserRole;
+}) {
   const { signIn } = useSignIn();
   const clerk = useClerk();
   const isLoaded = Boolean(signIn);
   const [selectedRole, setSelectedRole] = useState<UserRole>(
-    portal === "student" ? "student" : portal === "cad" ? "cad" : portal === "admin" ? "administrator" : "student"
+    initialRole ||
+      (portal === "student"
+        ? "student"
+        : portal === "cad"
+          ? "cad"
+          : portal === "admin"
+            ? "administrator"
+            : "student")
   );
   const [isLoading, setIsLoading] = useState(false);
   const [notice, setNotice] = useState(
@@ -64,10 +77,16 @@ export function RoleLoginPage({ portal }: { portal: "any" | "student" | "cad" | 
     setIsLoading(true);
     sessionStorage.setItem("campusvote_login_role", selectedRole);
 
+    // ABSOLUTE URLs matter: when the flow falls through to Clerk's hosted
+    // page (accounts.dev), relative URLs get resolved against the Clerk
+    // origin and the user ends up on Clerk's dead-end default-redirect page.
+    // Forcing the complete URL back to our own origin guarantees the user
+    // always lands on the app's callback, which then routes by DB role.
+    const callbackUrl = `${window.location.origin}/auth/clerk-callback`;
     const options = {
       strategy: "oauth_google" as const,
-      redirectUrl: "/auth/clerk-callback",
-      redirectCallbackUrl: "/auth/clerk-callback",
+      redirectUrl: callbackUrl,
+      redirectCallbackUrl: callbackUrl,
     };
 
     // Attempt 1: signal-based sso() (current Clerk v7 API)
@@ -93,9 +112,16 @@ export function RoleLoginPage({ portal }: { portal: "any" | "student" | "cad" | 
       console.error("Google sign-in (authenticateWithRedirect) failed:", err);
     }
 
-    // Attempt 3: Clerk hosted sign-in page (most robust path)
+    // Attempt 3: Clerk hosted sign-in page (most robust path). Force the
+    // return URL so the instance's broken default-redirect is never used.
     try {
-      clerk.redirectToSignIn({ redirectUrl: "/auth/clerk-callback" });
+      const hosted = clerk as unknown as {
+        redirectToSignIn: (o?: Record<string, unknown>) => void;
+      };
+      hosted.redirectToSignIn({
+        signInForceRedirectUrl: callbackUrl,
+        signInFallbackRedirectUrl: callbackUrl,
+      });
       return;
     } catch (err) {
       console.error("Google sign-in (hosted) failed:", err);

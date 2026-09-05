@@ -41,7 +41,30 @@ function ClerkCallbackInner() {
   const router = useRouter();
   const [step, setStep] = useState<BridgeStep>("checking");
   const [errorMsg, setErrorMsg] = useState("");
+  const [directVisit, setDirectVisit] = useState(false);
   const bridged = useRef(false);
+
+  useEffect(() => {
+    // DIRECT VISIT / STALE FLOW HANDLING:
+    // This page is only meaningful as the OAuth return target. If someone
+    // opens it with no OAuth parameters (or a flow has gone stale), bounce
+    // back to /login instead of hanging here or letting Clerk redirect to
+    // its own dead-end default-redirect page.
+    if (!isLoaded || isSignedIn) return;
+    const params = new URLSearchParams(window.location.search);
+    const hasOauth = ["code", "state", "sso_state", "error"].some((k) =>
+      params.has(k)
+    );
+    if (!hasOauth) {
+      setDirectVisit(true);
+      const t = setTimeout(() => router.replace("/login"), 400);
+      return () => clearTimeout(t);
+    }
+    // OAuth handshake is in progress but the session isn't ready yet —
+    // keep waiting, with a hard timeout so we can never hang forever.
+    const t = setTimeout(() => router.replace("/login"), 12000);
+    return () => clearTimeout(t);
+  }, [isLoaded, isSignedIn, router]);
 
   useEffect(() => {
     if (!isLoaded || !isSignedIn || !user || bridged.current) return;
@@ -165,7 +188,33 @@ function ClerkCallbackInner() {
   }, [isLoaded, isSignedIn, user, getToken, router]);
 
   if (!isLoaded || !isSignedIn) {
-    return <AuthenticateWithRedirectCallback />;
+    return (
+      <AuthLayout>
+        <AuthCard>
+          <div className="text-center py-8">
+            {directVisit ? (
+              <>
+                <Loader2 className="w-10 h-10 animate-spin text-primary-600 mx-auto mb-4" />
+                <h2 className="text-lg font-semibold text-gray-900 mb-1">
+                  Taking you back to sign in…
+                </h2>
+                <p className="text-sm text-gray-500">
+                  There is no sign-in in progress.
+                </p>
+              </>
+            ) : (
+              <>
+                <Loader2 className="w-10 h-10 animate-spin text-primary-600 mx-auto mb-4" />
+                <h2 className="text-lg font-semibold text-gray-900 mb-1">
+                  Completing sign-in…
+                </h2>
+                <AuthenticateWithRedirectCallback />
+              </>
+            )}
+          </div>
+        </AuthCard>
+      </AuthLayout>
+    );
   }
 
   return (
