@@ -701,7 +701,7 @@ export function RoleLoginPage({
 
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs text-text-secondary pt-1">
               <a
-                href="/register"
+                href={portal === "cad" ? "/register/cad" : "/register"}
                 className="text-primary-600 hover:text-primary-700 font-medium"
               >
                 New here? Create an account
