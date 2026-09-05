@@ -193,7 +193,11 @@ export default function ForgotPasswordPage() {
     }
     setIsSubmitting(true);
     try {
-      const token = await getToken();
+      let token = await getToken({ skipCache: true });
+      if (!token) {
+        await new Promise((r) => setTimeout(r, 500));
+        token = await getToken({ skipCache: true });
+      }
       if (!token) {
         setError("Your verification session expired. Please start again.");
         setIsSubmitting(false);
