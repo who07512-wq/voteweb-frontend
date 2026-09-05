@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { getMe } from "@/lib/api/v1";
 import { CandidateLayout } from "@/components/candidate-dashboard/CandidateLayout";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -101,28 +101,41 @@ const INITIAL_FORM: FormData = {
 
 export default function CandidateApplyPage() {
   const router = useRouter();
-  const { user } = useUser();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [formData, setFormData] = useState<FormData>(INITIAL_FORM);
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
-  // Pre-fill from Clerk user (Google OAuth profile) and stored roll number
+  // Pre-fill from the BACKEND account (the name entered at registration) and
+  // the stored roll number. The Clerk profile is no longer the identity
+  // source — email-code registrants have no Google profile, so their
+  // registration name (students.name in the DB) is the canonical one.
   useEffect(() => {
-    if (!user) return;
-    const clerkName = [user.firstName, user.lastName].filter(Boolean).join(" ") || "";
-    const clerkEmail = user.primaryEmailAddress?.emailAddress || "";
-    const storedRoll =
-      getRollNumber("candidate", clerkEmail) || getRollNumber("student", clerkEmail);
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await getMe();
+        if (cancelled || !me.authenticated || !me.user) return;
+        const accountName = me.user.fullName || me.user.name || "";
+        const accountEmail = me.user.email || "";
+        const storedRoll =
+          getRollNumber("candidate", accountEmail) || getRollNumber("student", accountEmail);
 
-    setFormData((prev) => ({
-      ...prev,
-      name: prev.name || clerkName,
-      email: prev.email || clerkEmail,
-      enrollmentNumber: prev.enrollmentNumber || storedRoll || "",
-    }));
-  }, [user]);
+        setFormData((prev) => ({
+          ...prev,
+          name: prev.name || accountName,
+          email: prev.email || accountEmail,
+          enrollmentNumber: prev.enrollmentNumber || storedRoll || "",
+        }));
+      } catch {
+        // Not fatal — the user can type their details manually.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleChange = (field: keyof FormData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));

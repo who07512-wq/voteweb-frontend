@@ -247,6 +247,10 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       setError("Passwords do not match.");
       return;
     }
+    if (!fullName.trim() || fullName.trim().length < 2) {
+      setError("Enter your full name — it will be used on your application and profile.");
+      return;
+    }
     setIsSubmitting(true);
     try {
       // The Clerk session token proves the email was verified by code.
@@ -463,15 +467,15 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
             <div className="p-3 bg-green-50 border border-green-100 rounded-lg text-sm text-green-800 flex items-start gap-2">
               <Mail className="w-4 h-4 mt-0.5 shrink-0" />
               <span>
-                <strong>{email}</strong> verified. Now choose a password to finish.
+                <strong>{email}</strong> verified. Now enter your name and choose a password.
               </span>
             </div>
             <Input
               id="register-name"
-              label="Full name (optional)"
+              label="Full name"
               type="text"
               autoComplete="name"
-              placeholder="Your name"
+              placeholder="e.g. Rahul Sharma"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
             />
