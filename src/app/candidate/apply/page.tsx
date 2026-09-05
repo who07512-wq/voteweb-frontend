@@ -141,14 +141,43 @@ export default function CandidateApplyPage() {
       setErrors((prev) => ({ ...prev, photo: "Photo must be under 5MB" }));
       return;
     }
+    // Downscale via canvas (max 512px, JPEG ~85%) before storing. The photo
+    // is saved as a base64 data URL in the database — a raw phone photo is
+    // megabytes of base64, which blows row/payload limits and slows every
+    // load. A 512px JPEG stays in the ~30-80KB range and looks fine at
+    // avatar sizes.
     const reader = new FileReader();
     reader.onload = (ev) => {
-      setFormData((prev) => ({ ...prev, photo: ev.target?.result as string }));
-      setErrors((prev) => {
-        const next = { ...prev };
-        delete next.photo;
-        return next;
-      });
+      const img = new window.Image();
+      img.onload = () => {
+        const MAX = 512;
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          // Canvas unavailable — fall back to the original data URL.
+          setFormData((prev) => ({ ...prev, photo: ev.target?.result as string }));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, w, h);
+        setFormData((prev) => ({
+          ...prev,
+          photo: canvas.toDataURL("image/jpeg", 0.85),
+        }));
+        setErrors((prev) => {
+          const next = { ...prev };
+          delete next.photo;
+          return next;
+        });
+      };
+      img.onerror = () => {
+        setErrors((prev) => ({ ...prev, photo: "Could not read that image. Try a different photo." }));
+      };
+      img.src = ev.target?.result as string;
     };
     reader.readAsDataURL(file);
   };
