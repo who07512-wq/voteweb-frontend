@@ -107,14 +107,38 @@ export function RoleLoginPage({
       redirectCallbackUrl: callbackUrl,
     };
 
-    // Attempt 1: Clerk hosted sign-in page (MOST RELIABLE). This is the only
-    // path guaranteed to navigate the browser: signIn.sso() can silently
-    // resolve WITHOUT navigating when a stale sign-in attempt exists in the
-    // Clerk session (it skips creating a fresh attempt and returns cleanly),
-    // which made the button appear dead. redirectToSignIn always performs a
-    // real navigation to the Clerk sign-in page, which then offers Google.
+    // Attempt 1: DIRECT full-page navigation to the Clerk hosted sign-in URL
+    // (MOST RELIABLE — this is the one that works on phones too). We build
+    // the exact sign-in URL with clerk.buildSignInUrl() and navigate with a
+    // plain window.location.href. No dependence on in-memory Clerk navigation
+    // state, popups, or router internals — a hard page load always happens on
+    // every device. signIn.sso() is NOT used as the primary path because it
+    // can silently resolve WITHOUT navigating when a stale sign-in attempt
+    // exists in the Clerk session, which makes the button appear dead.
     // Force the return URLs so the instance's broken default-redirect is
     // never used and the user always comes back to our callback.
+    try {
+      const builder = clerk as unknown as {
+        buildSignInUrl?: (o: Record<string, unknown>) => string;
+        redirectToSignIn?: (o?: Record<string, unknown>) => void;
+      };
+      if (typeof builder.buildSignInUrl === "function") {
+        const url = builder.buildSignInUrl({
+          signInForceRedirectUrl: callbackUrl,
+          signInFallbackRedirectUrl: callbackUrl,
+        });
+        if (url && url.startsWith("http")) {
+          window.location.href = url;
+          return;
+        }
+      }
+    } catch (err) {
+      console.error("Google sign-in (buildSignInUrl) failed:", err);
+    }
+
+    // Attempt 2: Clerk hosted redirect via the in-memory object. Reached only
+    // if buildSignInUrl was unavailable; performs a real navigation to the
+    // Clerk sign-in page, which then offers Google.
     try {
       const hosted = clerk as unknown as {
         redirectToSignIn: (o?: Record<string, unknown>) => void;
@@ -128,8 +152,8 @@ export function RoleLoginPage({
       console.error("Google sign-in (hosted) failed:", err);
     }
 
-    // Attempt 2: signal-based sso() — direct Google flow. Only reached if
-    // the hosted redirect threw. Guarded so a resolve-without-navigation
+    // Attempt 3: signal-based sso() — direct Google flow. Only reached if
+    // both hosted paths threw. Guarded so a resolve-without-navigation
     // (stale sign-in) can't be mistaken for success: we wait a moment and
     // fall through to the error message if no navigation started.
     try {
