@@ -84,6 +84,17 @@ export function RoleLoginPage({
     sessionStorage.removeItem("campusvote_bridged");
     sessionStorage.removeItem("campusvote_dest");
 
+    // If a Clerk session is ALREADY active (e.g. the user completed sign-in
+    // earlier but landed back on /login), starting a brand-new OAuth flow via
+    // signIn.sso() fails with "sign failed" — Clerk refuses to create a new
+    // sign-in while a session exists. In that case skip the Google round-trip
+    // entirely and go straight to the callback, which re-bridges the existing
+    // session and routes by the database role.
+    if (clerk.session?.id || clerk.session) {
+      window.location.href = `${window.location.origin}/auth/clerk-callback`;
+      return;
+    }
+
     // ABSOLUTE URLs matter: when the flow falls through to Clerk's hosted
     // page (accounts.dev), relative URLs get resolved against the Clerk
     // origin and the user ends up on Clerk's dead-end default-redirect page.

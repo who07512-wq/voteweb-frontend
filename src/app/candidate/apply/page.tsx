@@ -113,7 +113,8 @@ export default function CandidateApplyPage() {
     if (!user) return;
     const clerkName = [user.firstName, user.lastName].filter(Boolean).join(" ") || "";
     const clerkEmail = user.primaryEmailAddress?.emailAddress || "";
-    const storedRoll = getRollNumber("candidate", clerkEmail);
+    const storedRoll =
+      getRollNumber("candidate", clerkEmail) || getRollNumber("student", clerkEmail);
 
     setFormData((prev) => ({
       ...prev,

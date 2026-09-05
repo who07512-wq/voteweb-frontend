@@ -15,7 +15,10 @@ export default function CandidateLayout({ children }: { children: React.ReactNod
     if (!isLoaded || !user) return;
     const email = user.primaryEmailAddress?.emailAddress;
     if (!email) return;
-    if (hasRollNumber("candidate", email)) return;
+    // Accept a roll saved under either role key (a candidate is still a
+    // student until approved, and the roll-number page may have stored it
+    // under either) so the user is never bounced back to the roll form.
+    if (hasRollNumber("candidate", email) || hasRollNumber("student", email)) return;
     const next = pathname?.startsWith("/") ? pathname : "/candidate/dashboard";
     router.replace(
       `/roll-number?role=candidate&email=${encodeURIComponent(email)}&next=${encodeURIComponent(next)}`

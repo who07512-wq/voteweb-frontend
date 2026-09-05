@@ -191,22 +191,26 @@ function ClerkCallbackInner() {
         if (dbRole === "STUDENT" && roleRaw === "candidate") {
           dest = "/candidate/apply";
         }
+        // Roll numbers are stored per portal role: candidate applicants are
+        // asked on the candidate portal, everyone else as student. Check BOTH
+        // keys so a roll saved under either role is honored (a candidate is
+        // still a student until approved) — this is what prevents being
+        // bounced back to the roll-number page right after entering it.
+        const rollRole = roleRaw === "candidate" ? "candidate" : "student";
+        const otherRollRole = rollRole === "candidate" ? "student" : "candidate";
         const needsRoll =
           (dbRole === "STUDENT" || dbRole === "CANDIDATE") &&
-          !hasRollNumber(dbRole.toLowerCase(), primaryEmail);
+          !hasRollNumber(rollRole, primaryEmail) &&
+          !hasRollNumber(otherRollRole, primaryEmail);
+
+        const rollUrl = `/roll-number?role=${rollRole}&email=${encodeURIComponent(primaryEmail)}&next=${encodeURIComponent(dest)}`;
 
         // Persist the resolved destination so a remount after Clerk's
         // internal redirect goes straight there without re-bridging.
-        sessionStorage.setItem("campusvote_dest", needsRoll ? `/roll-number?role=${dbRole.toLowerCase()}&email=${encodeURIComponent(primaryEmail)}&next=${encodeURIComponent(dest)}` : dest);
+        sessionStorage.setItem("campusvote_dest", needsRoll ? rollUrl : dest);
 
         setTimeout(() => {
-          if (needsRoll) {
-            router.replace(
-              `/roll-number?role=${dbRole.toLowerCase()}&email=${encodeURIComponent(primaryEmail)}&next=${encodeURIComponent(dest)}`
-            );
-          } else {
-            router.replace(dest);
-          }
+          router.replace(needsRoll ? rollUrl : dest);
         }, 800);
       } catch (err) {
         console.error("Clerk callback bridge failed:", err);
