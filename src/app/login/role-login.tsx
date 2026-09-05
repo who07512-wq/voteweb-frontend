@@ -107,31 +107,14 @@ export function RoleLoginPage({
       redirectCallbackUrl: callbackUrl,
     };
 
-    // Attempt 1: signal-based sso() (current Clerk v7 API)
-    try {
-      const res = (await signIn.sso(options)) as { error?: unknown } | undefined;
-      if (!res?.error) return; // browser is navigating to Google
-      console.error("Google sign-in (sso) failed:", res.error);
-    } catch (err) {
-      console.error("Google sign-in (sso) threw:", err);
-    }
-
-    // Attempt 2: classic authenticateWithRedirect (older API — present in
-    // some clerk-js builds; skipped safely if this version dropped it)
-    try {
-      const legacy = signIn as unknown as {
-        authenticateWithRedirect?: (o: typeof options) => Promise<unknown>;
-      };
-      if (typeof legacy.authenticateWithRedirect === "function") {
-        await legacy.authenticateWithRedirect(options);
-        return; // navigating to Google
-      }
-    } catch (err) {
-      console.error("Google sign-in (authenticateWithRedirect) failed:", err);
-    }
-
-    // Attempt 3: Clerk hosted sign-in page (most robust path). Force the
-    // return URL so the instance's broken default-redirect is never used.
+    // Attempt 1: Clerk hosted sign-in page (MOST RELIABLE). This is the only
+    // path guaranteed to navigate the browser: signIn.sso() can silently
+    // resolve WITHOUT navigating when a stale sign-in attempt exists in the
+    // Clerk session (it skips creating a fresh attempt and returns cleanly),
+    // which made the button appear dead. redirectToSignIn always performs a
+    // real navigation to the Clerk sign-in page, which then offers Google.
+    // Force the return URLs so the instance's broken default-redirect is
+    // never used and the user always comes back to our callback.
     try {
       const hosted = clerk as unknown as {
         redirectToSignIn: (o?: Record<string, unknown>) => void;
@@ -143,6 +126,32 @@ export function RoleLoginPage({
       return;
     } catch (err) {
       console.error("Google sign-in (hosted) failed:", err);
+    }
+
+    // Attempt 2: signal-based sso() — direct Google flow. Only reached if
+    // the hosted redirect threw. Guarded so a resolve-without-navigation
+    // (stale sign-in) can't be mistaken for success: we wait a moment and
+    // fall through to the error message if no navigation started.
+    try {
+      const res = (await signIn.sso(options)) as { error?: unknown } | undefined;
+      if (res?.error) {
+        console.error("Google sign-in (sso) failed:", res.error);
+      } else {
+        // Assume the browser is navigating to Google. Give it a beat; if
+        // nothing happened (stale sign-in silent no-op), report it instead
+        // of leaving the button dead.
+        setTimeout(() => {
+          if (document.visibilityState !== "hidden") {
+            setError(
+              "Google sign-in did not open. Please try again — if it keeps failing, refresh the page first."
+            );
+            setIsLoading(false);
+          }
+        }, 3000);
+        return;
+      }
+    } catch (err) {
+      console.error("Google sign-in (sso) threw:", err);
     }
 
     setError(
