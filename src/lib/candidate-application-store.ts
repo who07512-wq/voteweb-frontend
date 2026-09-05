@@ -51,10 +51,35 @@ export async function getApplicationByEmail(email: string): Promise<CandidateApp
   }
 }
 
+/**
+ * All candidate APPLICATIONS for admin review — real backend source:
+ * GET /admin/candidate-applications (the candidate_applications table).
+ * The previous implementation read GET /candidates — a nearly-empty legacy
+ * table — so submitted applications never showed up for review.
+ */
 export async function getAllApplications(): Promise<CandidateApplicationData[]> {
   try {
-    const all: any = await candidateApi.getAll();
-    return all?.data || all || [];
+    const res: any = await candidateApi.listApplications();
+    const apps: any[] = res?.candidates || res?.data || [];
+    return (apps || []).map((a: any) => ({
+      id: String(a.id),
+      name: a.fullName || a.name || "—",
+      enrollmentNumber: a.enrollmentNumber || "—",
+      department: a.department || "—",
+      year: a.year || "—",
+      section: a.section || "",
+      position: a.position || a.contestingPosition || "—",
+      email: a.email || "—",
+      phone: a.phone || "—",
+      photo: a.profilePhotoUrl || a.photo || null,
+      bio: a.bio || "",
+      manifesto: a.manifesto || "",
+      status: (a.status || "under_review") as CandidateApplicationData["status"],
+      rejectionReason: a.rejectionReason ?? null,
+      adminNote: a.changesRequestedReason ?? null,
+      submittedDate: a.submittedAt || null,
+      reviewedDate: a.reviewedAt || null,
+    }));
   } catch {
     return [];
   }
@@ -136,14 +161,44 @@ export async function submitApplication(
   return result?.data || result;
 }
 
+/**
+ * Admin review action on a candidate application. Hits the REAL backend
+ * endpoints (approve/reject/request-changes); the old code called a
+ * nonexistent /candidates/:id/status route, so actions silently failed.
+ */
 export async function updateApplicationStatus(
   id: string,
   status: ApplicationStatus,
   rejectionReason?: string
 ): Promise<CandidateApplicationData> {
-  const result: any = await candidateApi.updateStatus(id, {
-    status,
-    reason: rejectionReason
-  });
-  return result?.data || result;
+  let result: any;
+  if (status === "approved") {
+    result = await candidateApi.approveApplication(id);
+  } else if (status === "rejected") {
+    result = await candidateApi.rejectApplication(id, rejectionReason || "Application rejected");
+  } else if (status === "changes_requested") {
+    result = await candidateApi.requestApplicationChanges(id, rejectionReason || "Changes requested");
+  } else {
+    throw new Error(`Unsupported status transition: ${status}`);
+  }
+  const app: any = result?.application || result?.data || result;
+  return {
+    id: String(app?.id ?? id),
+    name: app?.fullName || "—",
+    enrollmentNumber: app?.enrollmentNumber || "—",
+    department: app?.department || "—",
+    year: app?.year || "—",
+    section: app?.section || "",
+    position: app?.position || app?.contestingPosition || "—",
+    email: app?.email || "—",
+    phone: app?.phone || "—",
+    photo: app?.profilePhotoUrl || null,
+    bio: app?.bio || "",
+    manifesto: app?.manifesto || "",
+    status: (app?.status || status) as CandidateApplicationData["status"],
+    rejectionReason: app?.rejectionReason ?? null,
+    adminNote: app?.changesRequestedReason ?? null,
+    submittedDate: app?.submittedAt || null,
+    reviewedDate: app?.reviewedAt || null,
+  };
 }

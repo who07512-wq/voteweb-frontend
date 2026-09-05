@@ -48,7 +48,19 @@ export const candidateApi = {
   getApproved: () => api.get<CandidateApplication[]>("/candidates/approved"),
   submit: (data: SubmitApplicationPayload) => api.post<CandidateApplication>("/candidates", data),
   update: (id: string, data: Partial<SubmitApplicationPayload>) => api.put<CandidateApplication>(`/candidates/${id}`, data),
-  updateStatus: (id: string, data: UpdateStatusPayload) => api.patch<CandidateApplication>(`/candidates/${id}/status`, data),
+
+  // ---- Admin review of candidate APPLICATIONS ----
+  // Real endpoints: /api/v1/admin/candidate-applications (the /candidates/:id/status
+  // route never existed — approvals were failing silently before this fix).
+  listApplications: () =>
+    api.get<{ success: boolean; candidates: unknown[]; count: number }>("/admin/candidate-applications"),
+  approveApplication: (id: string) =>
+    api.patch<{ success: boolean; application: unknown }>(`/admin/candidate-applications/${id}/approve`),
+  rejectApplication: (id: string, reason: string) =>
+    api.patch<{ success: boolean; application: unknown }>(`/admin/candidate-applications/${id}/reject`, { reason }),
+  requestApplicationChanges: (id: string, reason: string) =>
+    api.patch<{ success: boolean; application: unknown }>(`/admin/candidate-applications/${id}/request-changes`, { reason }),
+
   getPositions: () => api.get<string[]>("/candidates/positions"),
   getDepartments: () => api.get<string[]>("/candidates/departments"),
 };
