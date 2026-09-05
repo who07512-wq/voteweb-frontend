@@ -418,6 +418,11 @@ export function RoleLoginPage({
   // re-bridge (don't force the user through a new code round-trip).
   useEffect(() => {
     if (!authLoaded || isAdminFlow) return;
+    // A just-completed sign-out must never be bounced straight back into a
+    // portal — show the clean login form instead.
+    const signedOut = window.sessionStorage.getItem("campusvote_signed_out") === "1";
+    window.sessionStorage.removeItem("campusvote_signed_out");
+    if (signedOut) return;
     if (isSignedIn) {
       setRoleFlags();
       goToCallback();

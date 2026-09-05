@@ -34,6 +34,25 @@ export function useSignOut() {
     clearAuthCookie();
     clearBindingToken();
 
+    // Clear every flow flag so no stale state on /login or the callback page
+    // can bounce the user straight back into a dashboard after sign-out.
+    try {
+      const keys = Object.keys(window.sessionStorage);
+      keys
+        .filter((k) => k.startsWith("campusvote_"))
+        .forEach((k) => window.sessionStorage.removeItem(k));
+    } catch {
+      // Private mode etc. - non-fatal.
+    }
+
+    // Tell /login this is an intentional sign-out: it must NOT auto-bounce an
+    // in-flight/leftover Clerk session back into the portal.
+    try {
+      window.sessionStorage.setItem("campusvote_signed_out", "1");
+    } catch {
+      // Non-fatal.
+    }
+
     try {
       await clerkSignOut();
     } catch {

@@ -6,6 +6,7 @@ import { CandidateSidebar } from "./CandidateSidebar";
 import { CandidateNavbar } from "./CandidateNavbar";
 import { MobileNav } from "@/components/layout/MobileNav";
 import { getMyApplication } from "@/lib/candidate-api";
+import { getMe } from "@/lib/api/v1";
 import type { ApplicationStatus } from "@/lib/candidate-dashboard-data";
 
 export interface CandidateLayoutProps {
@@ -51,15 +52,21 @@ export const CandidateLayout: React.FC<CandidateLayoutProps> = ({
     (async () => {
       let currentStatus: ApplicationStatus = "draft";
       try {
-        const app = await getMyApplication();
+        // Identity comes from both the candidate application and the account:
+        // application name/enrollment (once applied) take priority, otherwise
+        // the registration name/roll number from the backend account.
+        const [app, me] = await Promise.all([
+          getMyApplication().catch(() => null),
+          getMe().catch(() => null),
+        ]);
         if (alive) {
           if (app) {
-            setUserName(app.name || "Candidate");
-            setUserId(app.id);
+            setUserName(app.name || me?.user?.fullName || me?.user?.name || "Candidate");
+            setUserId(app.enrollmentNumber || me?.user?.rollNumber || "");
             currentStatus = app.status;
           } else {
-            setUserName("Candidate");
-            setUserId("");
+            setUserName(me?.user?.fullName || me?.user?.name || "Candidate");
+            setUserId(me?.user?.rollNumber || "");
           }
         }
       } catch {
