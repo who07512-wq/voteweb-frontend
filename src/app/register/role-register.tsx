@@ -254,7 +254,15 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     setIsSubmitting(true);
     try {
       // The Clerk session token proves the email was verified by code.
-      const token = await getToken();
+      // A fresh email-code signup may not have a cached token yet — skip the
+      // cache and (if needed) give Clerk a moment to persist the session
+      // before giving up, so a just-completed verification isn't reported as
+      // "expired".
+      let token = await getToken({ skipCache: true });
+      if (!token) {
+        await new Promise((r) => setTimeout(r, 500));
+        token = await getToken({ skipCache: true });
+      }
       if (!token) {
         setError("Your verification session expired. Please start again.");
         setIsSubmitting(false);
