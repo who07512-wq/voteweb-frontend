@@ -51,10 +51,10 @@ export const CampusVoteLogo: React.FC<CampusVoteLogoProps> = ({
           sizeClasses[size].logo
         )}
       />
-      <div className="flex flex-col">
+      <div className="flex flex-col min-w-0">
         <span
           className={cn(
-            "font-semibold tracking-wide",
+            "font-semibold tracking-wide truncate",
             sizeClasses[size].title,
             theme.title
           )}

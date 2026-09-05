@@ -28,7 +28,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({ selectedRole, onSele
         Sign in as
       </label>
       <div
-        className="grid grid-cols-3 gap-2.5"
+        className="grid grid-cols-1 min-[380px]:grid-cols-3 gap-2.5"
         role="radiogroup"
         aria-label="Sign in as"
       >
@@ -66,7 +66,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({ selectedRole, onSele
                 >
                   {role.label}
                 </p>
-                <p className="text-[10px] text-text-muted leading-tight hidden sm:block">
+                <p className="text-[10px] text-text-muted leading-tight hidden min-[380px]:block">
                   {role.description}
                 </p>
               </div>

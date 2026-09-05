@@ -379,12 +379,12 @@ export function RoleLoginPage({
         </div>
 
         {notice && (
-          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm break-words">
             {notice}
           </div>
         )}
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm break-words">
             {error}
           </div>
         )}
@@ -457,7 +457,7 @@ export function RoleLoginPage({
                   >
                     Email address
                   </label>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <input
                       id="email-code-email"
                       type="email"
@@ -468,12 +468,13 @@ export function RoleLoginPage({
                       onKeyDown={(e) => {
                         if (e.key === "Enter") sendEmailCode();
                       }}
-                      className="flex-1 px-4 py-2.5 text-sm bg-white dark:bg-[#252540] border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                      className="flex-1 min-w-0 px-4 py-2.5 text-sm bg-white dark:bg-[#252540] border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                     />
                     <Button
                       onClick={sendEmailCode}
                       disabled={isSending}
                       isLoading={isSending}
+                      className="w-full sm:w-auto shrink-0"
                     >
                       {!isSending && "Send code"}
                     </Button>
@@ -511,7 +512,7 @@ export function RoleLoginPage({
                 >
                   {!isVerifying && "Verify & Sign In"}
                 </Button>
-                <div className="flex items-center justify-between text-xs text-text-secondary">
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-text-secondary">
                   <button
                     type="button"
                     onClick={resendCode}
@@ -536,7 +537,7 @@ export function RoleLoginPage({
               </>
             )}
 
-            <div className="flex items-center justify-between text-xs text-text-secondary pt-1">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs text-text-secondary pt-1">
               <a
                 href="/access-request"
                 className="hover:text-primary-600 transition-colors"
@@ -553,12 +554,14 @@ export function RoleLoginPage({
           </div>
         )}
 
-        <div className="mt-6 pt-4 border-t border-border text-xs text-text-secondary text-center flex items-center justify-center gap-1.5">
-          <ShieldAlert className="w-3.5 h-3.5" />
-          {isAdminFlow
-            ? "Admin sign-in is protected — only listed administrators can access this portal"
-            : "Secured by Clerk — your code is emailed to you and never shared with CampusVote"}
-          <HelpCircle className="w-3 h-3 opacity-50" />
+        <div className="mt-6 pt-4 border-t border-border text-xs text-text-secondary text-center flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 leading-relaxed px-1">
+          <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+          <span>
+            {isAdminFlow
+              ? "Admin sign-in is protected — only listed administrators can access this portal"
+              : "Secured by Clerk — your code is emailed to you and never shared with CampusVote"}
+          </span>
+          <HelpCircle className="w-3 h-3 opacity-50 shrink-0" />
         </div>
       </AuthCard>
     </AuthLayout>

@@ -60,12 +60,12 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({ children, className }) =
         {/* Right Content Panel */}
         <div className="flex-1 flex flex-col min-h-screen lg:min-h-0">
           {/* Mobile Header */}
-          <div className="lg:hidden flex items-center justify-center p-6 bg-transparent">
+          <div className="lg:hidden flex items-center justify-center p-4 min-[380px]:p-6 bg-transparent">
             <CampusVoteLogo size="md" />
           </div>
 
           {/* Main Content */}
-          <div className="flex-1 flex items-center justify-center p-5 sm:p-8 lg:p-10">
+          <div className="flex-1 flex items-center justify-center p-3 min-[380px]:p-5 sm:p-8 lg:p-10">
             <div className="w-full max-w-md">{children}</div>
           </div>
 

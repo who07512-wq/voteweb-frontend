@@ -10,7 +10,7 @@ export const AuthCard: React.FC<AuthCardProps> = ({ children, className }) => {
   return (
     <div
       className={cn(
-        "bg-white border border-border rounded-[20px] shadow-[0_8px_30px_rgba(32,39,92,0.08)] p-6 sm:p-8",
+        "bg-white border border-border rounded-[20px] shadow-[0_8px_30px_rgba(32,39,92,0.08)] p-4 min-[380px]:p-6 sm:p-8",
         className
       )}
     >
