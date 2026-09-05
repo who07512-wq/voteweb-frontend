@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { api } from "@/lib/api/client";
-import { Vote, AlertTriangle, Inbox } from "lucide-react";
+import { Vote, AlertTriangle, Inbox, RefreshCw } from "lucide-react";
 
 interface ElectionRow {
   id: number;
@@ -29,17 +30,22 @@ export default function CadElectionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await api.get<{ elections: ElectionRow[] }>("/cad/elections");
-        setElections(res.elections || []);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Unable to load data. Please try again.");
-      }
-      setLoading(false);
-    })();
+  const load = useCallback(async () => {
+    try {
+      const res = await api.get<{ elections: ElectionRow[] }>("/cad/elections");
+      setElections(res.elections || []);
+      setError("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to load data. Please try again.");
+    }
+    setLoading(false);
   }, []);
+
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 30000); // election monitoring: refresh every 30s
+    return () => clearInterval(t);
+  }, [load]);
 
   if (loading) return <div className="p-8 text-center text-text-secondary">Loading...</div>;
   if (error) {
@@ -54,9 +60,15 @@ export default function CadElectionsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-text-primary">Elections</h1>
-        <p className="text-sm text-text-secondary mt-1">All elections with real-time vote counts.</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-text-primary">Elections</h1>
+          <p className="text-sm text-text-secondary mt-1">All elections with real-time vote counts.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={load} className="gap-1.5" disabled={loading}>
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
       </div>
 
       {!elections || elections.length === 0 ? (

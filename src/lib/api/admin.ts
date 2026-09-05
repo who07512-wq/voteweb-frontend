@@ -67,6 +67,10 @@ export const adminApi = {
   // Students (GET /admin/students)
   getStudents: () => api.get<{ students?: AdminStudentRecord[] } | AdminStudentRecord[]>("/admin/students"),
 
+  // Update a student (PATCH /admin/students/:id) — voting eligibility + role management
+  updateStudent: (id: number, patch: { voting_eligible?: boolean; role?: string; name?: string; email?: string | null }) =>
+    api.patch<{ data: AdminStudentRecord }>(`/admin/students/${id}`, patch),
+
   // Elections (GET /admin/elections)
   getElections: () => api.get<{ elections?: AdminElectionRecord[] } | AdminElectionRecord[]>("/admin/elections"),
 

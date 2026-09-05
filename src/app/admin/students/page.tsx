@@ -42,6 +42,24 @@ export default function StudentsPage() {
   const [role, setRole] = useState<string>("All");
   const [activeFilter, setActiveFilter] = useState<string>("All");
   const [selectedStudent, setSelectedStudent] = useState<UiStudent | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const patchStudent = async (id: number, patch: { voting_eligible?: boolean; role?: string }) => {
+    setSaving(true);
+    try {
+      const res = await adminApi.updateStudent(id, patch);
+      const updated = res?.data;
+      setStudents((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, ...(updated ?? patch) } : s))
+      );
+      if (selectedStudent?.id === id) {
+        setSelectedStudent((prev) => (prev ? { ...prev, ...(updated ?? patch) } : prev));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Update failed. Please try again.");
+    }
+    setSaving(false);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -173,6 +191,7 @@ export default function StudentsPage() {
                       <th className="text-left px-4 py-3 font-semibold text-text-secondary">Email</th>
                       <th className="text-left px-4 py-3 font-semibold text-text-secondary">Role</th>
                       <th className="text-left px-4 py-3 font-semibold text-text-secondary">Account</th>
+                      <th className="text-left px-4 py-3 font-semibold text-text-secondary">Voting</th>
                       <th className="text-right px-4 py-3 font-semibold text-text-secondary">Actions</th>
                     </tr>
                   </thead>
@@ -193,6 +212,11 @@ export default function StudentsPage() {
                         <td className="px-4 py-3">
                           <Badge variant={student.is_active ? "success" : "error"} size="sm">
                             {student.is_active ? "Active" : "Inactive"}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={student.voting_eligible ? "success" : "neutral"} size="sm">
+                            {student.voting_eligible ? "Eligible" : "Not Eligible"}
                           </Badge>
                         </td>
                         <td className="px-4 py-3 text-right">
@@ -265,9 +289,18 @@ export default function StudentsPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between py-2 border-b border-border">
                   <span className="text-sm text-text-secondary">Role</span>
-                  <Badge variant={getRoleBadgeVariant(selectedStudent.role)} size="sm">
-                    {selectedStudent.role}
-                  </Badge>
+                  <select
+                    value={selectedStudent.role}
+                    disabled={saving}
+                    onChange={(e) => patchStudent(selectedStudent.id, { role: e.target.value })}
+                    className="px-2.5 py-1.5 text-sm bg-white border border-border rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {["STUDENT", "CANDIDATE", "CAD", "ADMIN"].map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="flex items-center justify-between py-2 border-b border-border">
@@ -277,23 +310,29 @@ export default function StudentsPage() {
                   </Badge>
                 </div>
 
-                {typeof (selectedStudent as { voting_eligible?: boolean }).voting_eligible === "boolean" && (
-                  <div className="flex items-center justify-between py-2 border-b border-border">
-                    <span className="text-sm text-text-secondary">Voting Eligibility</span>
-                    <Badge
-                      variant={(selectedStudent as { voting_eligible?: boolean }).voting_eligible ? "success" : "warning"}
+                <div className="flex items-center justify-between py-2 border-b border-border">
+                  <span className="text-sm text-text-secondary">Voting Eligibility</span>
+                  {typeof selectedStudent.voting_eligible === "boolean" ? (
+                    <Button
+                      variant={selectedStudent.voting_eligible ? "outline" : "primary"}
                       size="sm"
+                      disabled={saving}
+                      onClick={() =>
+                        patchStudent(selectedStudent.id, { voting_eligible: !selectedStudent.voting_eligible })
+                      }
                     >
-                      {(selectedStudent as { voting_eligible?: boolean }).voting_eligible ? "Eligible" : "Not Eligible"}
-                    </Badge>
-                  </div>
-                )}
+                      {selectedStudent.voting_eligible ? "Revoke" : "Grant"}
+                    </Button>
+                  ) : (
+                    <Badge variant="neutral" size="sm">Unknown</Badge>
+                  )}
+                </div>
               </div>
 
               <div className="flex items-start gap-2 p-3 rounded-xl bg-primary-50 border border-primary-100">
                 <Shield className="w-4 h-4 text-primary-600 mt-0.5 flex-shrink-0" />
                 <p className="text-xs text-primary-700 leading-relaxed">
-                  Eligibility and roles are managed by the backend. Account changes are audit-logged.
+                  Changes take effect immediately and are audit-logged. You cannot change your own role.
                 </p>
               </div>
 

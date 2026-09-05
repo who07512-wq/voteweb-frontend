@@ -22,7 +22,7 @@ export interface CurrentUser {
   name: string;
   fullName: string;
   email: string;
-  role: "STUDENT" | "CANDIDATE" | "ADMIN";
+  role: "STUDENT" | "CANDIDATE" | "ADMIN" | "CAD";
   passwordChangeRequired: boolean;
   mfaEnabled: boolean;
   mfaVerified: boolean;

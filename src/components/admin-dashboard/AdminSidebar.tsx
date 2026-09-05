@@ -19,6 +19,7 @@ import {
   LogOut,
   Shield,
   UserPlus,
+  Eye,
 } from "lucide-react";
 
 export interface AdminSidebarProps {
@@ -48,6 +49,7 @@ const MENU_SECTIONS = [
     label: "RESULTS",
     items: [
       { label: "Results", href: "/admin/results", icon: BarChart3 },
+      { label: "CAD Monitor", href: "/cad/dashboard", icon: Eye },
     ],
   },
   {
