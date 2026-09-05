@@ -1,27 +1,58 @@
 "use client";
 
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { Home, ArrowLeft } from "lucide-react";
+import { Compass, LogIn } from "lucide-react";
 
-export default function NotFound() {
+/**
+ * Canonical 404 page. Rendered BOTH at /404 (Vercel platform 404 route)
+ * and as app/not-found (unknown routes). Never uses history.back(): a
+ * back-navigation into a stale auth URL is what previously trapped users
+ * in the 404 loop. Auth-looking paths get a "Back to Sign In" instead.
+ */
+export default function NotFoundPage() {
+  const [cameFromAuth, setCameFromAuth] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setCameFromAuth(window.location.pathname.startsWith("/auth/"));
+    }
+  }, []);
+
   return (
-    <div className="min-h-screen bg-bg-tertiary flex items-center justify-center px-4">
-      <div className="bg-white dark:bg-[#252540] rounded-[20px] border border-border p-10 max-w-md w-full text-center">
-        <div className="w-16 h-16 bg-bg-tertiary rounded-full flex items-center justify-center mx-auto mb-6">
-          <span className="text-3xl">🔍</span>
-        </div>
-        <h1 className="text-2xl font-bold text-text-primary mb-2">Page Not Found</h1>
-        <p className="text-sm text-text-secondary mb-2">The page you are looking for does not exist or has been moved.</p>
-        <p className="text-xs text-text-secondary mb-8">Error Code: 404</p>
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="text-center max-w-md bg-white rounded-[20px] border border-border p-10">
+        <p className="text-6xl font-bold text-primary-600 mb-2">404</p>
+        <h1 className="text-2xl font-bold text-gray-900 mb-3">Page Not Found</h1>
+        <p className="text-sm text-gray-600 mb-2">
+          The page you are looking for does not exist or has been moved.
+        </p>
+        <p className="text-xs text-gray-500 mb-8">Error Code: 404</p>
         <div className="flex items-center justify-center gap-3">
-          <button onClick={() => window.history.back()}
-            className="flex items-center gap-2 bg-bg-tertiary text-primary-600 px-6 py-3 rounded-[12px] text-sm font-semibold hover:bg-border transition-colors">
-            <ArrowLeft size={16} /> Go Back
-          </button>
-          <Link href="/"
-            className="flex items-center gap-2 bg-primary-600 text-white px-6 py-3 rounded-[12px] text-sm font-semibold hover:bg-primary-500 transition-colors">
-            <Home size={16} /> Home
+          <Link
+            href="/"
+            className="inline-flex items-center justify-center px-5 py-2.5 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition"
+          >
+            <Compass className="w-4 h-4 mr-2" />
+            Go Back Home
           </Link>
+          {cameFromAuth ? (
+            <Link
+              href="/login"
+              className="inline-flex items-center justify-center px-5 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 transition"
+            >
+              <LogIn className="w-4 h-4 mr-2" />
+              Back to Sign In
+            </Link>
+          ) : (
+            <Link
+              href="/login"
+              className="inline-flex items-center justify-center px-5 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 transition"
+            >
+              <LogIn className="w-4 h-4 mr-2" />
+              Sign In
+            </Link>
+          )}
         </div>
       </div>
     </div>
