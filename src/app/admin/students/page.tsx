@@ -1,27 +1,67 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { AdminLayout } from "@/components/admin-dashboard/AdminLayout";
+import React, { useState, useMemo, useEffect } from "react";
+import { Search, Eye, X, Shield, AlertTriangle, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { adminApi, AdminStudentRecord } from "@/lib/api/admin";
-import { Users, Inbox, AlertTriangle, RefreshCw } from "lucide-react";
+import { Badge } from "@/components/ui/Badge";
+import { Modal } from "@/components/ui/Modal";
+import { AdminLayout } from "@/components/admin-dashboard/AdminLayout";
+import { adminApi, type AdminStudentRecord } from "@/lib/api/admin";
 
-export default function AdminStudentsPage() {
-  const [students, setStudents] = useState<AdminStudentRecord[]>([]);
+const DEPARTMENTS = ["All", "BCA", "BBA", "BCOM", "MCA", "MBA"] as const;
+const ROLES = ["All", "STUDENT", "CANDIDATE", "CAD", "ADMIN"] as const;
+
+type UiStudent = AdminStudentRecord & {
+  displayId: string;
+  year: string;
+  votingStatus: "Voted" | "Not Voted";
+};
+
+function getRoleBadgeVariant(role: string): "success" | "error" | "warning" | "info" | "neutral" {
+  switch (role) {
+    case "ADMIN":
+      return "error";
+    case "CAD":
+      return "info";
+    case "CANDIDATE":
+      return "warning";
+    case "STUDENT":
+      return "success";
+    default:
+      return "neutral";
+  }
+}
+
+export default function StudentsPage() {
+  const [students, setStudents] = useState<UiStudent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [department, setDepartment] = useState<string>("All");
+  const [role, setRole] = useState<string>("All");
+  const [activeFilter, setActiveFilter] = useState<string>("All");
+  const [selectedStudent, setSelectedStudent] = useState<UiStudent | null>(null);
 
   const load = async () => {
     setLoading(true);
+    setError("");
     try {
       const res = await adminApi.getStudents();
-      const list = Array.isArray(res) ? res : res.students || [];
-      setStudents(list);
-      setError("");
+      const rows: AdminStudentRecord[] = Array.isArray(res)
+        ? res
+        : ((res as { students?: AdminStudentRecord[] }).students as AdminStudentRecord[]) ||
+          ((res as unknown as AdminStudentRecord[]) ?? []);
+      setStudents(
+        (rows || []).map((s, i) => ({
+          ...s,
+          displayId: s.student_id || s.email || `#${s.id ?? i + 1}`,
+          year: s.role === "STUDENT" ? "— " : "—",
+          votingStatus: "Not Voted" as const,
+        }))
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to load data. Please try again.");
+      setError(e instanceof Error ? e.message : "Unable to load students. Please try again.");
     }
     setLoading(false);
   };
@@ -30,67 +70,243 @@ export default function AdminStudentsPage() {
     load();
   }, []);
 
+  const filteredStudents = useMemo(() => {
+    return students.filter((s) => {
+      const q = search.toLowerCase();
+      if (
+        search &&
+        !s.name?.toLowerCase().includes(q) &&
+        !s.displayId.toLowerCase().includes(q) &&
+        !s.email?.toLowerCase().includes(q)
+      )
+        return false;
+      if (department !== "All" && (s as { department?: string }).department !== department)
+        return false;
+      if (role !== "All" && s.role !== role) return false;
+      if (activeFilter === "Active" && !s.is_active) return false;
+      if (activeFilter === "Inactive" && s.is_active) return false;
+      return true;
+    });
+  }, [students, search, department, role, activeFilter]);
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-text-primary">Students</h1>
-          <p className="text-sm text-text-secondary mt-1">All registered students from the database.</p>
-        </div>
-        <Button variant="outline" size="sm" onClick={load}>
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
-      </div>
-
-      {error && (
-        <div className="p-3 bg-error-50 border border-error-200 rounded-xl text-error-600 text-sm">
-          {error}
-        </div>
-      )}
-
-      {!loading && students.length === 0 && !error ? (
-        <Card>
-          <div className="flex flex-col items-center justify-center py-16">
-            <Inbox className="h-12 w-12 text-text-tertiary mb-3" />
-            <p className="text-text-secondary font-medium">No students have registered yet.</p>
-            <p className="text-sm text-text-tertiary mt-1">
-              Students appear here after their first Google sign-in or access-request approval.
+    <AdminLayout>
+      <div className="space-y-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-extrabold text-text-primary tracking-tight">
+              Student Management
+            </h1>
+            <p className="text-sm font-semibold text-text-secondary">
+              Real accounts from the database.
             </p>
           </div>
+          <Button variant="outline" size="sm" onClick={load} className="gap-1.5" disabled={loading}>
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
+
+        {error && (
+          <Card className="p-4 flex items-center gap-3 border-error-200 bg-error-50">
+            <AlertTriangle className="w-5 h-5 text-error-500" />
+            <p className="text-sm text-error-600">{error}</p>
+          </Card>
+        )}
+
+        <Card className="p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="relative lg:col-span-2">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+              <input
+                type="text"
+                placeholder="Search by name, ID or email..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-9 pr-4 py-2.5 text-sm bg-white border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
+              />
+            </div>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="px-3 py-2.5 text-sm bg-white border border-border rounded-xl text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all cursor-pointer"
+            >
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {r === "All" ? "All Roles" : r}
+                </option>
+              ))}
+            </select>
+            <select
+              value={activeFilter}
+              onChange={(e) => setActiveFilter(e.target.value)}
+              className="px-3 py-2.5 text-sm bg-white border border-border rounded-xl text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all cursor-pointer"
+            >
+              <option value="All">All Account Status</option>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+            </select>
+          </div>
         </Card>
-      ) : (
-        <Card className="hidden md:block">
-          {students.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left font-semibold text-text-primary py-3 px-4">Name</th>
-                    <th className="text-left font-semibold text-text-primary py-3 px-4">Student ID</th>
-                    <th className="text-left font-semibold text-text-primary py-3 px-4">Email</th>
-                    <th className="text-left font-semibold text-text-primary py-3 px-4">Role</th>
-                    <th className="text-left font-semibold text-text-primary py-3 px-4">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {students.map((s) => (
-                    <tr key={s.id} className="border-b border-border last:border-b-0 hover:bg-primary-50/40">
-                      <td className="py-3 px-4 font-medium text-text-primary">{s.name}</td>
-                      <td className="py-3 px-4 text-text-secondary font-mono text-xs">{s.student_id || "—"}</td>
-                      <td className="py-3 px-4 text-text-secondary">{s.email || "—"}</td>
-                      <td className="py-3 px-4"><Badge variant="info">{s.role}</Badge></td>
-                      <td className="py-3 px-4">
-                        <Badge variant={s.is_active ? "success" : "error"}>{s.is_active ? "Active" : "Inactive"}</Badge>
-                      </td>
+
+        {loading ? (
+          <Card className="p-12 text-center text-text-secondary">Loading students…</Card>
+        ) : filteredStudents.length === 0 ? (
+          <Card className="p-12 text-center">
+            <Search className="w-10 h-10 text-text-muted mx-auto mb-3" />
+            <h3 className="text-lg font-semibold text-text-primary">No Students Found</h3>
+            <p className="text-sm text-text-secondary mt-1">
+              {students.length === 0
+                ? "No student accounts exist yet. Accounts are created when students sign in with Google or are approved via access requests."
+                : "No students match your current filters."}
+            </p>
+          </Card>
+        ) : (
+          <>
+            <Card className="hidden md:block overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left px-4 py-3 font-semibold text-text-secondary">Student ID</th>
+                      <th className="text-left px-4 py-3 font-semibold text-text-secondary">Name</th>
+                      <th className="text-left px-4 py-3 font-semibold text-text-secondary">Email</th>
+                      <th className="text-left px-4 py-3 font-semibold text-text-secondary">Role</th>
+                      <th className="text-left px-4 py-3 font-semibold text-text-secondary">Account</th>
+                      <th className="text-right px-4 py-3 font-semibold text-text-secondary">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {filteredStudents.map((student) => (
+                      <tr
+                        key={student.id ?? student.displayId}
+                        className="border-b border-border last:border-0 hover:bg-bg-tertiary/50 transition-colors"
+                      >
+                        <td className="px-4 py-3 font-mono text-xs text-text-secondary">{student.displayId}</td>
+                        <td className="px-4 py-3 font-medium text-text-primary">{student.name || "—"}</td>
+                        <td className="px-4 py-3 text-text-secondary">{student.email || "—"}</td>
+                        <td className="px-4 py-3">
+                          <Badge variant={getRoleBadgeVariant(student.role)} size="sm">
+                            {student.role}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={student.is_active ? "success" : "error"} size="sm">
+                            {student.is_active ? "Active" : "Inactive"}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setSelectedStudent(student)}
+                            className="gap-1.5"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            View
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            <div className="md:hidden space-y-3">
+              {filteredStudents.map((student) => (
+                <Card key={student.id ?? student.displayId} className="p-4">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <p className="font-mono text-xs text-text-muted mb-0.5">{student.displayId}</p>
+                      <p className="font-semibold text-text-primary">{student.name || "—"}</p>
+                      <p className="text-sm text-text-secondary">{student.email || "—"}</p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedStudent(student)}
+                      className="gap-1.5"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      View
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant={getRoleBadgeVariant(student.role)} size="sm">
+                      {student.role}
+                    </Badge>
+                    <Badge variant={student.is_active ? "success" : "error"} size="sm">
+                      {student.is_active ? "Active" : "Inactive"}
+                    </Badge>
+                  </div>
+                </Card>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between text-sm text-text-secondary">
+              <p>
+                Showing <span className="font-semibold text-text-primary">{filteredStudents.length}</span> of{" "}
+                <span className="font-semibold text-text-primary">{students.length}</span> accounts
+              </p>
+            </div>
+          </>
+        )}
+
+        <Modal isOpen={!!selectedStudent} onClose={() => setSelectedStudent(null)} title="Student Details">
+          {selectedStudent && (
+            <div className="space-y-5">
+              <div className="space-y-1">
+                <p className="font-mono text-xs text-text-muted">{selectedStudent.displayId}</p>
+                <p className="text-lg font-bold text-text-primary">{selectedStudent.name || "—"}</p>
+                <p className="text-sm text-text-secondary">{selectedStudent.email || "No email on record"}</p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between py-2 border-b border-border">
+                  <span className="text-sm text-text-secondary">Role</span>
+                  <Badge variant={getRoleBadgeVariant(selectedStudent.role)} size="sm">
+                    {selectedStudent.role}
+                  </Badge>
+                </div>
+
+                <div className="flex items-center justify-between py-2 border-b border-border">
+                  <span className="text-sm text-text-secondary">Account Status</span>
+                  <Badge variant={selectedStudent.is_active ? "success" : "error"} size="sm">
+                    {selectedStudent.is_active ? "Active" : "Inactive"}
+                  </Badge>
+                </div>
+
+                {typeof (selectedStudent as { voting_eligible?: boolean }).voting_eligible === "boolean" && (
+                  <div className="flex items-center justify-between py-2 border-b border-border">
+                    <span className="text-sm text-text-secondary">Voting Eligibility</span>
+                    <Badge
+                      variant={(selectedStudent as { voting_eligible?: boolean }).voting_eligible ? "success" : "warning"}
+                      size="sm"
+                    >
+                      {(selectedStudent as { voting_eligible?: boolean }).voting_eligible ? "Eligible" : "Not Eligible"}
+                    </Badge>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-primary-50 border border-primary-100">
+                <Shield className="w-4 h-4 text-primary-600 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-primary-700 leading-relaxed">
+                  Eligibility and roles are managed by the backend. Account changes are audit-logged.
+                </p>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <Button variant="secondary" onClick={() => setSelectedStudent(null)} className="gap-1.5">
+                  <X className="w-4 h-4" />
+                  Close
+                </Button>
+              </div>
             </div>
           )}
-        </Card>
-      )}
-    </div>
+        </Modal>
+      </div>
+    </AdminLayout>
   );
 }

@@ -89,4 +89,18 @@ export const adminApi = {
   // Live election results (same read-only results service CAD uses)
   getElectionResults: (electionId: number) => api.get(`/cad/elections/${electionId}/results`),
   getMonitorElections: () => api.get<{ elections: Array<{ id: number; name: string; status: string }> }>("/cad/elections"),
+
+  // Announcements management (admin CRUD)
+  createAnnouncement: (body: { title: string; message: string; audience: string; priority?: string; is_published: boolean; election_id?: number | null }) =>
+    api.post("/admin/announcements", body),
+  updateAnnouncement: (id: number | string, body: { title?: string; message?: string; audience?: string; priority?: string; is_published?: boolean }) =>
+    api.patch(`/admin/announcements/${id}`, body),
+  deleteAnnouncement: (id: number | string) => api.delete(`/admin/announcements/${id}`),
+
+  // Support request management
+  updateSupportRequest: (id: number | string, body: { status?: string; priority?: string; response?: string; assigned_to?: string | null }) =>
+    api.patch(`/admin/support/${id}`, body),
+
+  // Publish election results (real endpoint)
+  publishElectionResults: (electionId: number | string) => api.post(`/admin/elections/${electionId}/publish`, {}),
 };
