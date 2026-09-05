@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSignIn, useSignUp, useAuth } from "@clerk/nextjs";
+import { useSignIn, useSignUp, useAuth, useClerk } from "@clerk/nextjs";
 import { HelpCircle, Loader2, Mail, KeyRound } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
@@ -30,7 +30,12 @@ type Stage = "email" | "code" | "new-password";
 export default function ForgotPasswordPage() {
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
-  const { getToken } = useAuth();
+  const { getToken, isLoaded: authLoaded, isSignedIn } = useAuth();
+  const clerk = useClerk();
+
+  // Set when a "send code" click had to sign out of an active Clerk session
+  // first; the effect below retries the send once Clerk reports signed-out.
+  const [pendingSend, setPendingSend] = useState(false);
 
   const [stage, setStage] = useState<Stage>("email");
   const [flow, setFlow] = useState<"signin" | "signup" | null>(null);
@@ -68,6 +73,12 @@ export default function ForgotPasswordPage() {
     );
   };
 
+  const isAlreadySignedInError = (err: unknown): boolean => {
+    const anyErr = err as { code?: string; message?: string } | null;
+    const message = String(anyErr?.message || "").toLowerCase();
+    return message.includes("already signed in") || message.includes("session already");
+  };
+
   // ---- Stage 1: send the one-time code ----
   const sendCode = async () => {
     setError("");
@@ -77,6 +88,15 @@ export default function ForgotPasswordPage() {
     }
     if (!signIn || !signUp) {
       setError("Still loading. Please try again in a moment.");
+      return;
+    }
+    // An active Clerk session blocks starting a new code flow (Clerk
+    // rejects with "You're already signed in."). Sign out of the stale
+    // session first; the effect below retries the send once signed out.
+    if (authLoaded && isSignedIn) {
+      setPendingSend(true);
+      setIsSending(true);
+      clerk.signOut().catch(() => {});
       return;
     }
     setIsSending(true);
@@ -94,6 +114,12 @@ export default function ForgotPasswordPage() {
         // is the right path for them) instead of creating a new account.
         setError("No account exists with this email. Create one from the Register page first.");
         setIsSending(false);
+        return;
+      }
+      // Session appeared mid-flow (e.g. restored late) — sign out & retry.
+      if (isAlreadySignedInError(res.error)) {
+        setPendingSend(true);
+        clerk.signOut().catch(() => {});
         return;
       }
       setError(`We couldn't send the code to that email${describe(res.error)}`);
