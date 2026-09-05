@@ -76,6 +76,13 @@ export function RoleLoginPage({
     }
     setIsLoading(true);
     sessionStorage.setItem("campusvote_login_role", selectedRole);
+    // Tell the callback page an OAuth flow is genuinely in progress. Clerk
+    // navigates back to the callback URL a second time (no query params) after
+    // completing the handshake; without this flag the callback would treat
+    // that second visit as a stray direct visit and bounce the user to /login.
+    sessionStorage.setItem("campusvote_oauth_started", "1");
+    sessionStorage.removeItem("campusvote_bridged");
+    sessionStorage.removeItem("campusvote_dest");
 
     // ABSOLUTE URLs matter: when the flow falls through to Clerk's hosted
     // page (accounts.dev), relative URLs get resolved against the Clerk

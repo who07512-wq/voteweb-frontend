@@ -55,16 +55,37 @@ function ClerkCallbackInner() {
     const hasOauth = ["code", "state", "sso_state", "error"].some((k) =>
       params.has(k)
     );
-    if (!hasOauth) {
+    const oauthStarted =
+      sessionStorage.getItem("campusvote_oauth_started") === "1";
+
+    if (!hasOauth && !oauthStarted) {
+      // Genuine stray visit (no OAuth params AND no flow in progress).
       setDirectVisit(true);
       const t = setTimeout(() => router.replace("/login"), 400);
       return () => clearTimeout(t);
     }
-    // OAuth handshake is in progress but the session isn't ready yet —
-    // keep waiting, with a hard timeout so we can never hang forever.
-    const t = setTimeout(() => router.replace("/login"), 12000);
+
+    // OAuth handshake is in progress (params present, OR Clerk's second
+    // post-handshake navigation to this URL with no params). Keep waiting
+    // for the session to be ready; never bounce a real sign-in back to login.
+    const t = setTimeout(() => router.replace("/login"), 20000);
     return () => clearTimeout(t);
   }, [isLoaded, isSignedIn, router]);
+
+  // On a remount after Clerk's internal redirect, restore a completed bridge
+  // instead of re-running it (re-running would create a second backend
+  // session and double-redirect).
+  useEffect(() => {
+    if (!isLoaded) return;
+    const already = sessionStorage.getItem("campusvote_bridged");
+    if (already === "1") {
+      bridged.current = true;
+      const dest = sessionStorage.getItem("campusvote_dest") || "/student/dashboard";
+      setStep("success");
+      const t = setTimeout(() => router.replace(dest), 300);
+      return () => clearTimeout(t);
+    }
+  }, [isLoaded, router]);
 
   useEffect(() => {
     if (!isLoaded || !isSignedIn || !user || bridged.current) return;
@@ -109,6 +130,7 @@ function ClerkCallbackInner() {
         const data = await res.json().catch(() => ({}));
 
         if (!res.ok) {
+          sessionStorage.removeItem("campusvote_oauth_started");
           sessionStorage.setItem("campusvote_role_mismatch", "1");
           setErrorMsg(data.error?.message || "Sign-in bridge failed. Please try again.");
           setStep("error");
@@ -132,6 +154,7 @@ function ClerkCallbackInner() {
             headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
             credentials: "include",
           }).catch(() => {});
+          sessionStorage.removeItem("campusvote_oauth_started");
           sessionStorage.setItem("campusvote_role_mismatch", "1");
           sessionStorage.removeItem("campusvote_login_role");
           setTimeout(() => router.replace(`/login/${roleRaw}`), 600);
@@ -152,6 +175,8 @@ function ClerkCallbackInner() {
         }
 
         sessionStorage.removeItem("campusvote_login_role");
+        sessionStorage.removeItem("campusvote_oauth_started");
+        sessionStorage.setItem("campusvote_bridged", "1");
         setStep("success");
 
         // Route by the DATABASE role (server-side truth), not the portal picked
@@ -170,6 +195,10 @@ function ClerkCallbackInner() {
           (dbRole === "STUDENT" || dbRole === "CANDIDATE") &&
           !hasRollNumber(dbRole.toLowerCase(), primaryEmail);
 
+        // Persist the resolved destination so a remount after Clerk's
+        // internal redirect goes straight there without re-bridging.
+        sessionStorage.setItem("campusvote_dest", needsRoll ? `/roll-number?role=${dbRole.toLowerCase()}&email=${encodeURIComponent(primaryEmail)}&next=${encodeURIComponent(dest)}` : dest);
+
         setTimeout(() => {
           if (needsRoll) {
             router.replace(
@@ -181,6 +210,7 @@ function ClerkCallbackInner() {
         }, 800);
       } catch (err) {
         console.error("Clerk callback bridge failed:", err);
+        sessionStorage.removeItem("campusvote_oauth_started");
         setErrorMsg("Something went wrong completing sign-in. Please try again.");
         setStep("error");
       }
