@@ -118,11 +118,19 @@ export function RoleLoginPage({
   };
 
   const isNotFoundError = (err: unknown): boolean => {
-    const code = String((err as { code?: string } | null)?.code || "");
+    const anyErr = err as { code?: string; message?: string } | null;
+    const code = String(anyErr?.code || "");
+    const message = String(anyErr?.message || "").toLowerCase();
     return (
       code.includes("identifier_not_found") ||
       code.includes("form_identifier_not_found") ||
-      code.includes("not_found")
+      code.includes("not_found") ||
+      // The SDK sometimes wraps Clerk's "Couldn't find your account." error
+      // in a generic api_response_error — match the human message too.
+      message.includes("couldn't find") ||
+      message.includes("couldnt find") ||
+      message.includes("could not find") ||
+      message.includes("no account")
     );
   };
 
@@ -631,6 +639,9 @@ export function RoleLoginPage({
                       Sign in with a password instead
                     </button>
                   </div>
+                  {/* Clerk renders its invisible bot-protection CAPTCHA here
+                      when creating brand-new accounts. */}
+                  <div id="clerk-captcha" />
                 </>
               )
             ) : (

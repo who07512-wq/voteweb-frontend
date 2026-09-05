@@ -52,8 +52,20 @@ export default function ForgotPasswordPage() {
   };
 
   const isNotFoundError = (err: unknown): boolean => {
-    const c = String((err as { code?: string } | null)?.code || "");
-    return c.includes("identifier_not_found") || c.includes("form_identifier_not_found") || c.includes("not_found");
+    const anyErr = err as { code?: string; message?: string } | null;
+    const code = String(anyErr?.code || "");
+    const message = String(anyErr?.message || "").toLowerCase();
+    return (
+      code.includes("identifier_not_found") ||
+      code.includes("form_identifier_not_found") ||
+      code.includes("not_found") ||
+      // The SDK sometimes wraps Clerk's "Couldn't find your account." error
+      // in a generic api_response_error — match the human message too.
+      message.includes("couldn't find") ||
+      message.includes("couldnt find") ||
+      message.includes("could not find") ||
+      message.includes("no account")
+    );
   };
 
   // ---- Stage 1: send the one-time code ----
