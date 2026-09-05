@@ -38,9 +38,17 @@ export default function CandidateManagementPage() {
   const [rejectReason, setRejectReason] = useState("")
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null)
 
-  const positions = ["all", "President", "Vice President", "General Secretary", "Treasurer", "Cultural Secretary", "Sports Secretary"]
+  // Courses offered on the candidate application form + any department seen in real data
+  const FORM_DEPARTMENTS = ["BBA", "BCA", "BCOM", "MBA", "MCA"]
   const statuses = ["all", "draft", "submitted", "under_review", "changes_requested", "approved", "rejected"]
-  const departments = ["all", "BCA", "BBA", "BSc IT"]
+  const positions = useMemo(() => {
+    const seen = Array.from(new Set(candidates.map((c) => c.position).filter(Boolean))) as string[]
+    return ["all", ...seen]
+  }, [candidates])
+  const departments = useMemo(() => {
+    const seen = Array.from(new Set(candidates.map((c) => c.department).filter(Boolean))) as string[]
+    return ["all", ...Array.from(new Set([...FORM_DEPARTMENTS, ...seen]))]
+  }, [candidates])
 
   useEffect(() => {
     getAllApplications()
