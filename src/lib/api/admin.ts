@@ -28,6 +28,15 @@ export interface AdminElectionRecord {
   end_time: string | null;
 }
 
+export interface AdminPositionRecord {
+  id: number;
+  club_id: number;
+  name: string;
+  description: string | null;
+  display_order: number;
+  is_active: boolean;
+}
+
 export interface AdminAnnouncementRecord {
   id: number;
   title: string;
@@ -107,4 +116,16 @@ export const adminApi = {
 
   // Publish election results (real endpoint)
   publishElectionResults: (electionId: number | string) => api.post(`/admin/elections/${electionId}/publish`, {}),
+
+  // ---- Election management (real /admin/elections CRUD) ----
+  updateElection: (id: number | string, body: { name?: string; description?: string; start_time?: string; end_time?: string }) =>
+    api.patch<{ data: AdminElectionRecord }>(`/admin/elections/${id}`, body),
+  updateElectionStatus: (id: number | string, status: string) =>
+    api.patch(`/admin/elections/${id}/status`, { status }),
+  getReadiness: (id: number | string) => api.get<Record<string, unknown>>(`/admin/elections/${id}/readiness`),
+
+  // ---- Positions management (real /admin/positions + /positions) ----
+  getPositions: () => api.get<{ data: AdminPositionRecord[] } | AdminPositionRecord[]>("/positions?active_only=false"),
+  updatePosition: (id: number | string, body: { name?: string; description?: string; display_order?: number }) =>
+    api.patch(`/admin/positions/${id}`, body),
 };

@@ -1,52 +1,107 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { AdminLayout } from "@/components/admin-dashboard/AdminLayout";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { MOCK_SCHEDULE } from "@/lib/admin-dashboard-data";
-import { Calendar, Clock, CheckCircle2, Edit, Plus, X } from "lucide-react";
+import { adminApi, type AdminElectionRecord } from "@/lib/api/admin";
+import { Calendar, Clock, CheckCircle2, RefreshCw, Inbox, AlertTriangle } from "lucide-react";
+
+interface TimelineEvent {
+  id: string;
+  event: string;
+  date: string;
+  time: string;
+  description: string;
+  status: "Completed" | "In Progress" | "Upcoming";
+}
+
+function buildTimeline(elections: AdminElectionRecord[]): TimelineEvent[] {
+  const now = Date.now();
+  const events: TimelineEvent[] = [];
+
+  for (const e of elections) {
+    const start = e.start_time ? new Date(e.start_time).getTime() : null;
+    const end = e.end_time ? new Date(e.end_time).getTime() : null;
+
+    const fmt = (iso: string | null) => {
+      if (!iso) return "Not set";
+      const d = new Date(iso);
+      return isNaN(d.getTime())
+        ? "Not set"
+        : d.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    };
+
+    const statusOf = (point: number | null, wasOpen: boolean): "Completed" | "In Progress" | "Upcoming" => {
+      if (point === null) return "Upcoming";
+      if (point < now) return "Completed";
+      if (wasOpen && start !== null && start <= now) return "In Progress";
+      return "Upcoming";
+    };
+
+    events.push({
+      id: `c-${e.id}`,
+      event: `${e.name} — Created`,
+      date: fmt(e.start_time),
+      time: "—",
+      description: `Election created (status: ${e.status}). Manage it from Election Management.`,
+      status: "Completed",
+    });
+    events.push({
+      id: `s-${e.id}`,
+      event: `${e.name} — Voting Opens`,
+      date: fmt(e.start_time),
+      time: start ? new Date(e.start_time!).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "—",
+      description: "Eligible students can begin casting their votes.",
+      status: statusOf(start, true),
+    });
+    events.push({
+      id: `e-${e.id}`,
+      event: `${e.name} — Voting Closes`,
+      date: fmt(e.end_time),
+      time: end ? new Date(e.end_time!).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "—",
+      description: "Voting period ends; results can then be published.",
+      status: statusOf(end, true),
+    });
+  }
+
+  return events;
+}
 
 export default function AdminSchedulePage() {
-  const [schedule, setSchedule] = useState(MOCK_SCHEDULE);
-  const [editEvent, setEditEvent] = useState<string | null>(null);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showSaveModal, setShowSaveModal] = useState(false);
-  const [formData, setFormData] = useState({ event: "", date: "", time: "", description: "" });
+  const [elections, setElections] = useState<AdminElectionRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const handleEdit = (event: typeof schedule[0]) => {
-    setEditEvent(event.id);
-    setFormData({ event: event.event, date: event.date, time: event.time, description: event.description });
-  };
-
-  const handleSave = () => {
-    setShowSaveModal(true);
-  };
-
-  const confirmSave = () => {
-    if (editEvent) {
-      setSchedule((prev) =>
-        prev.map((e) =>
-          e.id === editEvent ? { ...e, ...formData } : e
-        )
-      );
-    } else {
-      setSchedule((prev) => [
-        ...prev,
-        { id: `s-${Date.now()}`, ...formData, status: "Upcoming" as const },
-      ]);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await adminApi.getElections();
+      const rows: AdminElectionRecord[] = Array.isArray(res)
+        ? res
+        : ((res as { elections?: AdminElectionRecord[] }).elections as AdminElectionRecord[]) ||
+          ((res as { data?: AdminElectionRecord[] }).data as AdminElectionRecord[]) ||
+          [];
+      setElections(rows);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to load schedule. Please try again.");
     }
-    setShowSaveModal(false);
-    setEditEvent(null);
-    setShowAddModal(false);
-    setFormData({ event: "", date: "", time: "", description: "" });
-  };
+    setLoading(false);
+  }, []);
 
-  const handleAdd = () => {
-    setEditEvent(null);
-    setFormData({ event: "", date: "", time: "", description: "" });
-    setShowAddModal(true);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const timeline = buildTimeline(elections);
+
+  const statusBadge = (status: string): "success" | "warning" | "neutral" => {
+    if (status === "Completed") return "success";
+    if (status === "In Progress") return "warning";
+    return "neutral";
   };
 
   return (
@@ -55,133 +110,91 @@ export default function AdminSchedulePage() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-text-primary">Election Schedule</h1>
-            <p className="text-sm text-text-secondary">Manage the election timeline and important dates.</p>
+            <p className="text-sm text-text-secondary">
+              Real timeline built from election dates in the database.
+            </p>
           </div>
-          <Button variant="primary" size="sm" className="gap-1.5" onClick={handleAdd}>
-            <Plus className="w-3.5 h-3.5" />
-            Add Event
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={load} disabled={loading}>
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh
           </Button>
         </div>
 
-        <Card className="p-6 border-border">
-          <div className="relative">
-            <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-border" />
-            <div className="space-y-5">
-              {schedule.map((event) => {
-                const statusVariant =
-                  event.status === "Completed"
-                    ? "success"
-                    : event.status === "In Progress"
-                    ? "warning"
-                    : "info";
-                return (
-                  <div key={event.id} className="flex items-start gap-4 relative">
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 z-10 ${
-                        event.status === "Completed"
-                          ? "bg-success"
-                          : event.status === "In Progress"
-                          ? "bg-warning"
-                          : "bg-primary-100"
-                      }`}
-                    >
-                      {event.status === "Completed" ? (
-                        <CheckCircle2 className="w-4 h-4 text-white" />
-                      ) : event.status === "In Progress" ? (
-                        <Clock className="w-4 h-4 text-white" />
-                      ) : (
-                        <Calendar className="w-4 h-4 text-primary-600" />
-                      )}
-                    </div>
-                    <div className="flex-1 pb-2">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-text-primary">{event.event}</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <p className="text-xs text-text-secondary">{event.date}</p>
-                            {event.time !== "—" && (
-                              <>
-                                <span className="text-text-muted">•</span>
-                                <p className="text-xs text-text-secondary">{event.time}</p>
-                              </>
-                            )}
-                          </div>
-                          <p className="text-xs text-text-secondary mt-1">{event.description}</p>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <Badge variant={statusVariant as "success" | "warning" | "info"} className="text-[10px]">
-                            {event.status}
-                          </Badge>
-                          <button
-                            onClick={() => handleEdit(event)}
-                            className="p-1.5 rounded-lg hover:bg-primary-50 text-text-muted hover:text-primary-600 transition-colors"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+        {error && (
+          <Card className="p-4 flex items-center gap-3 border-error-200 bg-error-50">
+            <AlertTriangle className="w-5 h-5 text-error-500" />
+            <p className="text-sm text-error-600">{error}</p>
+          </Card>
+        )}
+
+        {loading ? (
+          <Card className="p-12 text-center text-text-secondary">Loading schedule…</Card>
+        ) : timeline.length === 0 ? (
+          <Card className="p-12 text-center">
+            <Inbox className="w-10 h-10 text-text-muted mx-auto mb-3" />
+            <h3 className="text-lg font-semibold text-text-primary">No Elections Scheduled</h3>
+            <p className="text-sm text-text-secondary mt-1">
+              The schedule appears here once an election exists with voting dates.
+            </p>
+            <Link href="/admin/election" className="inline-block mt-4 text-sm text-primary-600 hover:text-primary-700 font-semibold hover:underline">
+              Go to Election Management →
+            </Link>
+          </Card>
+        ) : (
+          <Card className="p-6">
+            <div className="flex items-center gap-2 mb-6">
+              <Calendar className="h-5 w-5 text-primary-600" />
+              <h2 className="text-lg font-semibold text-text-primary">Election Timeline</h2>
+            </div>
+            <div className="space-y-0">
+              {timeline.map((event, idx) => (
+                <div key={event.id} className="relative flex gap-4 pb-8 last:pb-0">
+                  {/* Timeline line */}
+                  {idx < timeline.length - 1 && (
+                    <div className="absolute left-[15px] top-8 bottom-0 w-px bg-border" />
+                  )}
+                  {/* Dot */}
+                  <div
+                    className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center z-10 ${
+                      event.status === "Completed"
+                        ? "bg-success-50"
+                        : event.status === "In Progress"
+                          ? "bg-warning-50"
+                          : "bg-bg-tertiary"
+                    }`}
+                  >
+                    {event.status === "Completed" ? (
+                      <CheckCircle2 className="w-4 h-4 text-success-600" />
+                    ) : (
+                      <Clock className={`w-4 h-4 ${event.status === "In Progress" ? "text-warning-600" : "text-text-muted"}`} />
+                    )}
                   </div>
-                );
-              })}
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <p className="font-semibold text-text-primary">{event.event}</p>
+                      <Badge variant={statusBadge(event.status)} size="sm">
+                        {event.status}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-text-secondary mt-0.5">
+                      {event.date}
+                      {event.time !== "—" && ` at ${event.time}`}
+                    </p>
+                    <p className="text-xs text-text-muted mt-1">{event.description}</p>
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
-        </Card>
+            <div className="mt-6 pt-4 border-t border-border flex items-center justify-between">
+              <p className="text-xs text-text-muted">Dates are set from Election Management.</p>
+              <Link href="/admin/election" className="text-sm text-primary-600 hover:text-primary-700 font-semibold hover:underline">
+                Edit dates →
+              </Link>
+            </div>
+          </Card>
+        )}
       </div>
-
-      {(editEvent || showAddModal) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { setEditEvent(null); setShowAddModal(false); }} />
-          <div className="relative bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-text-primary">
-                {editEvent ? "Edit Event" : "Add Event"}
-              </h3>
-              <button onClick={() => { setEditEvent(null); setShowAddModal(false); }} className="p-1 rounded-lg hover:bg-primary-50">
-                <X className="w-5 h-5 text-text-secondary" />
-              </button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="text-[10px] font-medium text-text-secondary uppercase tracking-wider block mb-1">Event Name</label>
-                <input value={formData.event} onChange={(e) => setFormData((p) => ({ ...p, event: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] font-medium text-text-secondary uppercase tracking-wider block mb-1">Date</label>
-                  <input value={formData.date} onChange={(e) => setFormData((p) => ({ ...p, date: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500" />
-                </div>
-                <div>
-                  <label className="text-[10px] font-medium text-text-secondary uppercase tracking-wider block mb-1">Time</label>
-                  <input value={formData.time} onChange={(e) => setFormData((p) => ({ ...p, time: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500" />
-                </div>
-              </div>
-              <div>
-                <label className="text-[10px] font-medium text-text-secondary uppercase tracking-wider block mb-1">Description</label>
-                <textarea value={formData.description} onChange={(e) => setFormData((p) => ({ ...p, description: e.target.value }))} rows={3} className="w-full px-3 py-2.5 rounded-xl border border-border text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none" />
-              </div>
-            </div>
-            <div className="flex gap-3 pt-2">
-              <Button variant="ghost" size="md" className="flex-1" onClick={() => { setEditEvent(null); setShowAddModal(false); }}>Cancel</Button>
-              <Button variant="primary" size="md" className="flex-1" onClick={handleSave}>Save</Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showSaveModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowSaveModal(false)} />
-          <div className="relative bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
-            <h3 className="text-lg font-bold text-text-primary">Save Schedule Changes?</h3>
-            <p className="text-sm text-text-secondary">Are you sure you want to update this event?</p>
-            <div className="flex gap-3 pt-2">
-              <Button variant="ghost" size="md" className="flex-1" onClick={() => setShowSaveModal(false)}>Cancel</Button>
-              <Button variant="primary" size="md" className="flex-1" onClick={confirmSave}>Save</Button>
-            </div>
-          </div>
-        </div>
-      )}
     </AdminLayout>
   );
 }

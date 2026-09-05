@@ -1,144 +1,151 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AdminLayout } from "@/components/admin-dashboard/AdminLayout";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
-import { MOCK_POSITIONS, ElectionPosition } from "@/lib/admin-dashboard-data";
+import { adminApi, type AdminPositionRecord } from "@/lib/api/admin";
 import {
   Plus,
-  Edit,
+  Pencil,
   Trash2,
   ArrowUp,
   ArrowDown,
   BarChart3,
+  RefreshCw,
+  AlertTriangle,
+  Inbox,
 } from "lucide-react";
 
 export default function PositionsPage() {
-  const [positions, setPositions] = useState<ElectionPosition[]>(MOCK_POSITIONS);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [editingPosition, setEditingPosition] = useState<ElectionPosition | null>(null);
-  const [deletingPosition, setDeletingPosition] = useState<ElectionPosition | null>(null);
+  const [positions, setPositions] = useState<AdminPositionRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
+  const [editingPosition, setEditingPosition] = useState<AdminPositionRecord | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
-    maxCandidates: 3,
-    order: 1,
-    status: "Active" as "Active" | "Inactive",
+    display_order: 1,
   });
 
-  const handleOpenAdd = () => {
-    setEditingPosition(null);
-    setFormData({
-      name: "",
-      description: "",
-      maxCandidates: 3,
-      order: positions.length + 1,
-      status: "Active",
-    });
-    setIsModalOpen(true);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await adminApi.getPositions();
+      const rows: AdminPositionRecord[] = Array.isArray(res)
+        ? res
+        : ((res as { data?: AdminPositionRecord[] }).data as AdminPositionRecord[]) || [];
+      setPositions(rows);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to load positions. Please try again.");
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const showToast = (type: "success" | "error", message: string) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 3500);
   };
 
-  const handleOpenEdit = (position: ElectionPosition) => {
+  const handleOpenEdit = (position: AdminPositionRecord) => {
     setEditingPosition(position);
     setFormData({
       name: position.name,
-      description: position.description,
-      maxCandidates: position.maxCandidates,
-      order: position.order,
-      status: position.status,
+      description: position.description || "",
+      display_order: position.display_order,
     });
     setIsModalOpen(true);
   };
 
-  const handleSave = () => {
-    if (editingPosition) {
-      setPositions((prev) =>
-        prev.map((p) =>
-          p.id === editingPosition.id
-            ? { ...p, ...formData }
-            : p
-        )
-      );
-    } else {
-      const newPosition: ElectionPosition = {
-        id: `pos-${Date.now()}`,
-        ...formData,
-        currentCandidates: 0,
-      };
-      setPositions((prev) => [...prev, newPosition]);
+  const handleSave = async () => {
+    if (!editingPosition || !formData.name.trim()) return;
+    setSaving(true);
+    try {
+      await adminApi.updatePosition(editingPosition.id, {
+        name: formData.name.trim(),
+        description: formData.description.trim() || undefined,
+        display_order: formData.display_order,
+      });
+      showToast("success", `${formData.name} updated.`);
+      setIsModalOpen(false);
+      setEditingPosition(null);
+      await load();
+    } catch (e) {
+      showToast("error", e instanceof Error ? e.message : "Update failed. Positions can only be edited while the election is DRAFT or SCHEDULED.");
     }
-    setIsModalOpen(false);
-    setEditingPosition(null);
+    setSaving(false);
   };
 
-  const handleOpenDelete = (position: ElectionPosition) => {
-    setDeletingPosition(position);
-    setIsDeleteModalOpen(true);
-  };
-
-  const handleDelete = () => {
-    if (deletingPosition) {
-      setPositions((prev) => prev.filter((p) => p.id !== deletingPosition.id));
+  const movePosition = async (index: number, direction: -1 | 1) => {
+    const target = positions[index + direction];
+    const current = positions[index];
+    if (!target) return;
+    setSaving(true);
+    try {
+      // Swap display orders in the database, then reload the real order
+      await adminApi.updatePosition(current.id, { display_order: target.display_order });
+      await adminApi.updatePosition(target.id, { display_order: current.display_order });
+      await load();
+    } catch (e) {
+      showToast("error", e instanceof Error ? e.message : "Reorder failed.");
     }
-    setIsDeleteModalOpen(false);
-    setDeletingPosition(null);
-  };
-
-  const handleMoveUp = (index: number) => {
-    if (index === 0) return;
-    setPositions((prev) => {
-      const updated = [...prev];
-      [updated[index - 1], updated[index]] = [updated[index], updated[index - 1]];
-      return updated.map((p, i) => ({ ...p, order: i + 1 }));
-    });
-  };
-
-  const handleMoveDown = (index: number) => {
-    if (index === positions.length - 1) return;
-    setPositions((prev) => {
-      const updated = [...prev];
-      [updated[index], updated[index + 1]] = [updated[index + 1], updated[index]];
-      return updated.map((p, i) => ({ ...p, order: i + 1 }));
-    });
+    setSaving(false);
   };
 
   return (
     <AdminLayout>
       <div className="space-y-6">
+        {toast && (
+          <div className={`fixed top-4 right-4 z-[70] px-4 py-3 rounded-xl shadow-lg text-sm font-medium text-white ${toast.type === "success" ? "bg-success" : "bg-error"}`}>
+            {toast.message}
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Election Positions</h1>
             <p className="text-gray-500 mt-1">
-              Manage election positions and their configuration.
+              Real positions from the database, grouped per club.
             </p>
           </div>
-          <Button variant="primary" onClick={handleOpenAdd}>
-            <Plus className="h-4 w-4 mr-1.5" />
-            Add Position
+          <Button variant="outline" size="sm" onClick={load} className="gap-1.5" disabled={loading}>
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh
           </Button>
         </div>
 
+        {error && (
+          <Card className="p-4 flex items-center gap-3 border-error-200 bg-error-50">
+            <AlertTriangle className="w-5 h-5 text-error-500" />
+            <p className="text-sm text-error-600">{error}</p>
+          </Card>
+        )}
+
         {/* Positions List */}
-        {positions.length === 0 ? (
+        {loading ? (
+          <Card className="p-12 text-center text-text-secondary">Loading positions…</Card>
+        ) : positions.length === 0 ? (
           <Card className="p-12 text-center">
             <div className="flex flex-col items-center gap-3">
               <div className="p-4 rounded-full bg-gray-100">
-                <BarChart3 className="h-8 w-8 text-gray-400" />
+                <Inbox className="h-8 w-8 text-gray-400" />
               </div>
               <h3 className="text-lg font-semibold text-gray-900">No Positions</h3>
               <p className="text-gray-500 text-sm max-w-sm">
-                No election positions have been created yet. Add a position to get started.
+                No election positions exist in the database yet. Positions are created under clubs when setting up an election.
               </p>
-              <Button variant="primary" onClick={handleOpenAdd}>
-                <Plus className="h-4 w-4 mr-1.5" />
-                Add Position
-              </Button>
             </div>
           </Card>
         ) : (
@@ -147,29 +154,22 @@ export default function PositionsPage() {
               <Card key={position.id} className="p-5 flex flex-col">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-bold text-gray-900 text-base">
-                      {position.name}
-                    </h3>
+                    <h3 className="font-bold text-gray-900 text-base">{position.name}</h3>
                     <p className="text-sm text-gray-500 mt-1 line-clamp-2">
-                      {position.description}
+                      {position.description || "No description"}
                     </p>
                   </div>
-                  <Badge variant={position.status === "Active" ? "success" : "neutral"}>
-                    {position.status}
+                  <Badge variant={position.is_active ? "success" : "neutral"}>
+                    {position.is_active ? "Active" : "Inactive"}
                   </Badge>
                 </div>
 
                 <div className="flex items-center gap-4 text-sm text-gray-600 mb-4">
                   <span>
-                    Candidates:{" "}
-                    <span className="font-medium text-gray-900">
-                      {position.currentCandidates}
-                    </span>{" "}
-                    / {position.maxCandidates}
+                    Club ID: <span className="font-medium text-gray-900">{position.club_id}</span>
                   </span>
                   <span>
-                    Order:{" "}
-                    <span className="font-medium text-gray-900">{position.order}</span>
+                    Order: <span className="font-medium text-gray-900">{position.display_order}</span>
                   </span>
                 </div>
 
@@ -178,184 +178,75 @@ export default function PositionsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => handleMoveUp(index)}
-                      disabled={index === 0}
+                      onClick={() => movePosition(index, -1)}
+                      disabled={index === 0 || saving}
+                      aria-label="Move up"
                     >
                       <ArrowUp className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => handleMoveDown(index)}
-                      disabled={index === positions.length - 1}
+                      onClick={() => movePosition(index, 1)}
+                      disabled={index === positions.length - 1 || saving}
+                      aria-label="Move down"
                     >
                       <ArrowDown className="h-4 w-4" />
                     </Button>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleOpenEdit(position)}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleOpenDelete(position)}
-                    >
-                      <Trash2 className="h-4 w-4 text-red-500" />
-                    </Button>
-                  </div>
+                  <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => handleOpenEdit(position)}>
+                    <Pencil className="w-3.5 h-3.5" />
+                    Edit
+                  </Button>
                 </div>
               </Card>
             ))}
           </div>
         )}
 
-        {/* Add / Edit Position Modal */}
-        <Modal
-          isOpen={isModalOpen}
-          onClose={() => {
-            setIsModalOpen(false);
-            setEditingPosition(null);
-          }}
-          title={editingPosition ? "Edit Position" : "Add Position"}
-        >
+        {/* Edit Position Modal — saves to the database */}
+        <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Edit Position">
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Position Name
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Position Name</label>
               <input
                 type="text"
                 value={formData.name}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, name: e.target.value }))
-                }
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="e.g. President"
-                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:border-primary-400 focus:ring-2 focus:ring-primary-100 outline-none transition-all"
               />
             </div>
-
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Description
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
               <textarea
                 value={formData.description}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, description: e.target.value }))
-                }
-                placeholder="Describe the role and responsibilities..."
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 rows={3}
-                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:border-primary-400 focus:ring-2 focus:ring-primary-100 outline-none transition-all resize-none"
+                className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Role responsibilities..."
               />
             </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Maximum Candidates
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  value={formData.maxCandidates}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      maxCandidates: parseInt(e.target.value) || 1,
-                    }))
-                  }
-                  className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:border-primary-400 focus:ring-2 focus:ring-primary-100 outline-none transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Display Order
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  value={formData.order}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      order: parseInt(e.target.value) || 1,
-                    }))
-                  }
-                  className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:border-primary-400 focus:ring-2 focus:ring-primary-100 outline-none transition-all"
-                />
-              </div>
-            </div>
-
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Status
-              </label>
-              <select
-                value={formData.status}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    status: e.target.value as "Active" | "Inactive",
-                  }))
-                }
-                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:border-primary-400 focus:ring-2 focus:ring-primary-100 outline-none transition-all"
-              >
-                <option value="Active">Active</option>
-                <option value="Inactive">Inactive</option>
-              </select>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Display Order</label>
+              <input
+                type="number"
+                min={1}
+                value={formData.display_order}
+                onChange={(e) => setFormData({ ...formData, display_order: parseInt(e.target.value) || 1 })}
+                className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setIsModalOpen(false);
-                  setEditingPosition(null);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                onClick={handleSave}
-                disabled={!formData.name.trim()}
-              >
-                {editingPosition ? "Save Changes" : "Add Position"}
-              </Button>
-            </div>
-          </div>
-        </Modal>
-
-        {/* Delete Confirmation Modal */}
-        <Modal
-          isOpen={isDeleteModalOpen}
-          onClose={() => {
-            setIsDeleteModalOpen(false);
-            setDeletingPosition(null);
-          }}
-          title="Delete Position?"
-        >
-          <div className="space-y-4">
-            <p className="text-sm text-gray-600">
-              Are you sure you want to delete <span className="font-semibold text-gray-900">{deletingPosition?.name}</span>? This action cannot be undone.
+            <p className="text-xs text-gray-500 flex items-start gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+              Positions can be modified while the election is in DRAFT or SCHEDULED status.
             </p>
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setIsDeleteModalOpen(false);
-                  setDeletingPosition(null);
-                }}
-              >
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="outline" onClick={() => setIsModalOpen(false)}>
                 Cancel
               </Button>
-              <Button variant="danger" onClick={handleDelete}>
-                Delete
+              <Button variant="primary" onClick={handleSave} disabled={saving || !formData.name.trim()}>
+                {saving ? "Saving..." : "Save Changes"}
               </Button>
             </div>
           </div>
