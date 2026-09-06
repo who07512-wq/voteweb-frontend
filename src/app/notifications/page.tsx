@@ -38,6 +38,14 @@ const icon: Record<string, string> = {
   success: "✅", info: "ℹ️", warning: "⚠️", error: "🚨",
 };
 
+function typeIcon(n: NotifItem): string {
+  if (n.category === "announcement") {
+    const base = icon[n.type] || icon.info;
+    return `${base} 📢`;
+  }
+  return icon[n.type] || icon.info;
+}
+
 function mapRow(row: ApiNotificationRow): NotifItem {
   return {
     id: String(row.id),
@@ -146,7 +154,7 @@ export default function NotificationsPage() {
     { value: "all", label: "All" },
     { value: "unread", label: "Unread" },
   ];
-  const knownCategories = ["voting", "election", "candidate", "support", "account", "system", "results"];
+  const knownCategories = ["voting", "election", "candidate", "support", "account", "system", "results", "announcement"];
   for (const c of knownCategories) {
     if (notifications.some(n => n.category === c)) {
       categories.push({ value: c, label: c[0].toUpperCase() + c.slice(1) });
@@ -229,7 +237,7 @@ export default function NotificationsPage() {
                       className="bg-white dark:bg-bg-secondary rounded-[14px] border border-border p-4 hover:shadow-md transition-shadow cursor-pointer"
                       onClick={() => markRead(n.id)}>
                       <div className="flex items-start gap-3">
-                        <span className="text-lg">{icon[n.type] || icon.info}</span>
+                        <span className="text-lg">{typeIcon(n)}</span>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-text-primary">{n.title}</p>
                           <p className="text-sm text-text-secondary mt-0.5">{n.message}</p>
@@ -259,7 +267,7 @@ export default function NotificationsPage() {
                       className="bg-white dark:bg-bg-secondary rounded-[14px] border border-border p-4 opacity-80 hover:opacity-100 transition-opacity cursor-pointer"
                       onClick={() => markRead(n.id)}>
                       <div className="flex items-start gap-3">
-                        <span className="text-lg">{icon[n.type] || icon.info}</span>
+                        <span className="text-lg">{typeIcon(n)}</span>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-text-primary">{n.title}</p>
                           <p className="text-sm text-text-secondary mt-0.5">{n.message}</p>

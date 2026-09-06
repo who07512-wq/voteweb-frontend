@@ -1,23 +1,82 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Bell } from "lucide-react";
-import { MOCK_NOTIFICATIONS, type Notification } from "@/lib/notification-data";
+import type { Notification } from "@/lib/notification-data";
+
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api/v1").replace(/\/$/, "");
+
+interface ApiNotificationRow {
+  id: number;
+  type: string;
+  category: string;
+  title: string;
+  message: string | null;
+  created_at: string;
+  is_read: boolean;
+  action_url: string | null;
+  action_label: string | null;
+}
+
+function mapRow(row: ApiNotificationRow): Notification {
+  return {
+    id: String(row.id),
+    type: (row.type || "info") as Notification["type"],
+    category: "system",
+    priority: "normal",
+    title: row.title,
+    message: row.message || "",
+    timestamp: row.created_at,
+    read: !!row.is_read,
+    action:
+      row.action_url && row.action_label
+        ? { label: row.action_label, href: row.action_url }
+        : undefined,
+  };
+}
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
-  const unread = MOCK_NOTIFICATIONS.filter(n => !n.read).length;
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const ref = useRef<HTMLDivElement>(null);
+  const unread = notifications.filter(n => !n.read).length;
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/notifications?limit=6`, { credentials: "include" });
+      if (!res.ok) return;
+      const body = await res.json().catch(() => ({}));
+      const rows: ApiNotificationRow[] = body.data || [];
+      setNotifications(rows.map(mapRow));
+    } catch {
+      // Bell is non-critical; keep whatever we have.
+    }
+  }, []);
 
   useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/notifications?limit=6`, { credentials: "include" });
+        if (!res.ok || !alive) return;
+        const body = await res.json().catch(() => ({}));
+        const rows: ApiNotificationRow[] = body.data || [];
+        if (alive) setNotifications(rows.map(mapRow));
+      } catch {
+        // Bell is non-critical; keep whatever we have.
+      }
+    })();
     const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    return () => {
+      alive = false;
+      document.removeEventListener("mousedown", handler);
+    };
   }, []);
 
   return (
     <div className="relative" ref={ref}>
-      <button onClick={() => setOpen(!open)}
+      <button onClick={() => { setOpen(!open); if (!open) load(); }}
         className="relative p-2 rounded-full hover:bg-bg-tertiary transition-colors text-text-secondary hover:text-primary-600">
         <Bell size={20} />
         {unread > 0 && (
@@ -30,8 +89,11 @@ export default function NotificationBell() {
             <span className="font-semibold text-sm text-text-primary">Notifications</span>
             {unread > 0 && <span className="text-xs text-text-secondary">{unread} new</span>}
           </div>
-          {MOCK_NOTIFICATIONS.slice(0, 6).map(n => (
-            <Link key={n.id} href={n.action?.href || "/student/dashboard"}
+          {notifications.length === 0 && (
+            <p className="px-4 py-6 text-center text-xs text-text-secondary">No notifications</p>
+          )}
+          {notifications.slice(0, 6).map(n => (
+            <Link key={n.id} href={n.action?.href || "/notifications"}
               onClick={() => setOpen(false)}
               className={`block px-4 py-3 hover:bg-bg-tertiary transition-colors ${!n.read ? "bg-bg-tertiary/40" : ""}`}>
               <div className="flex items-start gap-3">
