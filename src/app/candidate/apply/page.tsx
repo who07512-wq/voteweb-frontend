@@ -63,6 +63,7 @@ interface FormData {
   department: string;
   year: string;
   section: string;
+  category: "CLUB" | "CR";
   nominationClub: string;
   contestingPosition: string;
   email: string;
@@ -87,6 +88,7 @@ const INITIAL_FORM: FormData = {
   department: "",
   year: "",
   section: "",
+  category: "CLUB",
   nominationClub: "",
   contestingPosition: "",
   email: "",
@@ -235,8 +237,10 @@ export default function CandidateApplyPage() {
     if (!formData.department) newErrors.department = "Department is required";
     if (!formData.year) newErrors.year = "Year is required";
     if (!formData.section) newErrors.section = "Section is required";
-    if (!formData.nominationClub) newErrors.nominationClub = "Please select the club you are nominating for";
-    if (!formData.contestingPosition) newErrors.contestingPosition = "Please select the position you are applying for";
+    if (formData.category === "CLUB") {
+      if (!formData.nominationClub) newErrors.nominationClub = "Please select the club you are nominating for";
+      if (!formData.contestingPosition) newErrors.contestingPosition = "Please select the position you are applying for";
+    }
     if (!formData.age.trim()) newErrors.age = "Age is required";
     if (!formData.dateOfBirth.trim()) newErrors.dateOfBirth = "Date of birth is required";
     if (!formData.gender) newErrors.gender = "Gender is required";
@@ -294,12 +298,14 @@ export default function CandidateApplyPage() {
 
   const handleSubmit = async () => {
     if (!validateStep3()) return;
-    if (!formData.nominationClub || !formData.contestingPosition) {
-      setErrors({
-        nominationClub: !formData.nominationClub ? "Please select the club you are nominating for" : "",
-        contestingPosition: !formData.contestingPosition ? "Please select the position you are applying for" : "",
-      });
-      return;
+    if (formData.category === "CLUB") {
+      if (!formData.nominationClub || !formData.contestingPosition) {
+        setErrors({
+          nominationClub: !formData.nominationClub ? "Please select the club you are nominating for" : "",
+          contestingPosition: !formData.contestingPosition ? "Please select the position you are applying for" : "",
+        });
+        return;
+      }
     }
     setIsSubmitting(true);
     try {
@@ -309,8 +315,9 @@ export default function CandidateApplyPage() {
         department: formData.department,
         year: formData.year,
         section: formData.section,
-        nominationClub: formData.nominationClub,
-        contestingPosition: formData.contestingPosition,
+        category: formData.category,
+        nominationClub: formData.category === "CLUB" ? formData.nominationClub : "",
+        contestingPosition: formData.category === "CLUB" ? formData.contestingPosition : "",
         email: formData.email.trim(),
         phone: formData.phone.trim(),
         profilePhotoUrl: formData.photo,
@@ -387,24 +394,39 @@ export default function CandidateApplyPage() {
               <p className="text-xs text-text-secondary uppercase tracking-wider mb-2">
                 Application Summary
               </p>
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-sm">
-                  <span className="text-text-secondary">Name</span>
-                  <span className="font-medium text-text-primary">{formData.name}</span>
+<div className="space-y-1.5">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-text-secondary">Name</span>
+                    <span className="font-medium text-text-primary">{formData.name}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-text-secondary">Category</span>
+                    <span className="font-medium text-text-primary">
+                      {formData.category === "CR" ? "Class Representative" : "Club / Society"}
+                    </span>
+                  </div>
+                  {formData.category === "CLUB" ? (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-text-secondary">Club</span>
+                        <span className="font-medium text-text-primary text-right max-w-[220px]">{formData.nominationClub || "—"}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-text-secondary">Position</span>
+                        <span className="font-medium text-text-primary">{formData.contestingPosition || "—"}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-text-secondary">Constituency</span>
+                      <span className="font-medium text-text-primary">{formData.department} {formData.year} Section {formData.section}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-sm">
+                    <span className="text-text-secondary">Status</span>
+                    <Badge variant="warning" size="sm">Under Review</Badge>
+                  </div>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-text-secondary">Club</span>
-                  <span className="font-medium text-text-primary text-right max-w-[220px]">{formData.nominationClub || "—"}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-text-secondary">Position</span>
-                  <span className="font-medium text-text-primary">{formData.contestingPosition || "—"}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-text-secondary">Status</span>
-                  <Badge variant="warning" size="sm">Under Review</Badge>
-                </div>
-              </div>
             </div>
             <Button
               variant="primary"
@@ -607,7 +629,44 @@ export default function CandidateApplyPage() {
                 </div>
               </div>
 
+              {/* Election Category — what kind of seat are they applying for */}
+              <div>
+                <label className="block text-xs font-medium text-text-secondary mb-1.5">
+                  Election Category <span className="text-error-500">*</span>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleChange("category", "CLUB")}
+                    className={`px-3 py-2.5 rounded-xl border text-sm font-medium text-left transition-colors ${
+                      formData.category === "CLUB"
+                        ? "border-primary-500 bg-primary-50 text-primary-700"
+                        : "border-border text-text-secondary hover:bg-bg-tertiary"
+                    }`}
+                  >
+                    Club / Society
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleChange("category", "CR")}
+                    className={`px-3 py-2.5 rounded-xl border text-sm font-medium text-left transition-colors ${
+                      formData.category === "CR"
+                        ? "border-primary-500 bg-primary-50 text-primary-700"
+                        : "border-border text-text-secondary hover:bg-bg-tertiary"
+                    }`}
+                  >
+                    Class Representative
+                  </button>
+                </div>
+                <p className="text-xs text-text-muted mt-1.5">
+                  {formData.category === "CR"
+                    ? "Stand for your department, year and section seat. Your constituency will be matched to the details above."
+                    : "Stand for an official club / society leadership position."}
+                </p>
+              </div>
+
               {/* Club & Society Details — official nomination form fields */}
+              {formData.category === "CLUB" ? (
               <div className="bg-bg-tertiary rounded-xl p-4 space-y-4">
                 <p className="text-sm font-semibold text-text-primary">Club & Society Details</p>
 
@@ -653,6 +712,24 @@ export default function CandidateApplyPage() {
                   )}
                 </div>
               </div>
+              ) : (
+              <div className="bg-info-50 border border-info-100 rounded-xl p-4">
+                <p className="text-sm font-semibold text-primary-700 mb-1.5">
+                  Class Representative Seat
+                </p>
+                <p className="text-xs text-info-700 leading-relaxed">
+                  You are applying to represent your constituency.
+                </p>
+                <p className="text-xs text-info-700 font-medium mt-2 mb-1">Constituency</p>
+                <p className="text-sm text-text-primary font-semibold">
+                  {formData.department ? formData.department : "—"} {formData.year ? formData.year : "—"} Section {formData.section ? formData.section : "—"}
+                </p>
+                <p className="text-xs text-info-700 mt-2 leading-relaxed">
+                  Administration will seat you on the Class Representative ballot
+                  matching this department, year and section once your application is approved.
+                </p>
+              </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>

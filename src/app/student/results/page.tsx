@@ -28,6 +28,7 @@ import {
   Shield,
   Info,
   RefreshCw,
+  Users,
 } from "lucide-react";
 
 export default function StudentResultsPage() {
@@ -326,9 +327,17 @@ export default function StudentResultsPage() {
             <Card key={position.position} className="border-border overflow-hidden">
               <div className="p-5">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold text-text-primary">
-                    {position.position}
-                  </h3>
+                  <div className="min-w-0">
+                    <h3 className="text-lg font-bold text-text-primary">
+                      {position.position}
+                    </h3>
+                    {position.scope && (
+                      <span className="inline-flex items-center gap-1 mt-1 text-xs text-text-secondary">
+                        <Users className="w-3.5 h-3.5 text-primary-500" />
+                        Class Representative seat for {position.scope}
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2">
                     {position.isTie && (
                       <Badge variant="warning" className="text-[10px]">Tie Result</Badge>

@@ -27,9 +27,28 @@ interface ResultsFull {
   ballots_submitted: number;
   participation_rate: number;
   results_published: boolean;
+  total_clubs: number;
+  total_constituencies: number;
   clubs: Array<{
     club_id: number;
     club_name: string;
+    positions: Array<{
+      position_id: number;
+      position_name: string;
+      candidates: Array<{
+        candidate_id: number;
+        candidate_name: string;
+        vote_count: number;
+        percentage: number;
+        rank: number;
+        status: string;
+      }>;
+      total_votes: number;
+    }>;
+  }>;
+  constituencies: Array<{
+    constituency_id: number;
+    constituency_name: string;
     positions: Array<{
       position_id: number;
       position_name: string;
@@ -65,11 +84,16 @@ export default function AdminResultsPage() {
       const full = res as ResultsFull;
       setResults(full);
       setError("");
-      // Expand the first position of each club by default
+      // Expand the first position of each club and each CR constituency by default
       const initial: Record<string, boolean> = {};
       (full.clubs || []).forEach((club) =>
         (club.positions || []).forEach((pos, i) => {
-          initial[`${club.club_id}:${pos.position_id}`] = i === 0;
+          initial[`cl:${club.club_id}:${pos.position_id}`] = i === 0;
+        })
+      );
+      (full.constituencies || []).forEach((ct) =>
+        (ct.positions || []).forEach((pos, i) => {
+          initial[`ct:${ct.constituency_id}:${pos.position_id}`] = i === 0;
         })
       );
       setExpandedPositions(initial);
@@ -208,10 +232,10 @@ export default function AdminResultsPage() {
                   <p className="text-lg font-bold text-success-600">{results.participation_rate ?? 0}%</p>
                 </div>
                 <div className="bg-primary-50 rounded-xl p-4 col-span-2 sm:col-span-1">
-                  <span className="text-xs font-medium text-primary-600 block mb-1">Clubs / Positions</span>
+                  <span className="text-xs font-medium text-primary-600 block mb-1">Clubs / Constituencies</span>
                   <p className="text-lg font-bold text-primary-700">
                     {(results.clubs || []).length} /{" "}
-                    {(results.clubs || []).reduce((n, c) => n + (c.positions || []).length, 0)}
+                    {(results.total_constituencies ?? (results.constituencies || []).length)}
                   </p>
                 </div>
               </div>
@@ -238,8 +262,8 @@ export default function AdminResultsPage() {
               </Card>
             )}
 
-            {/* Result Review by Club -> Position */}
-            {(results.clubs || []).length === 0 ? (
+            {/* Result Review by Club -> Position and CR Constituency -> Position */}
+            {(results.clubs || []).length === 0 && (results.constituencies || []).length === 0 ? (
               <Card className="p-12 text-center">
                 <Inbox className="h-12 w-12 text-text-muted mx-auto mb-4" />
                 <h3 className="text-lg font-semibold text-text-primary">No Results Yet</h3>
@@ -248,106 +272,120 @@ export default function AdminResultsPage() {
                 </p>
               </Card>
             ) : (
-              (results.clubs || []).map((club) => (
-                <div key={club.club_id} className="space-y-4">
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-text-secondary">
-                    {club.club_name}
-                  </h3>
-                  {(club.positions || []).map((position) => {
-                    const key = `${club.club_id}:${position.position_id}`;
-                    const expanded = expandedPositions[key];
-                    return (
-                      <Card key={position.position_id}>
-                        <button
-                          onClick={() => setExpandedPositions((prev) => ({ ...prev, [key]: !prev[key] }))}
-                          className="w-full flex items-center justify-between cursor-pointer"
-                        >
-                          <div className="flex items-center gap-3">
-                            <Trophy className="w-5 h-5 text-primary-600" />
-                            <h4 className="text-base font-semibold text-text-primary">
-                              {position.position_name}
-                            </h4>
-                          </div>
-                          {expanded ? (
-                            <ChevronUp className="w-5 h-5 text-text-muted" />
-                          ) : (
-                            <ChevronDown className="w-5 h-5 text-text-muted" />
-                          )}
-                        </button>
+              (() => {
+                const sections = [
+                  ...(results.clubs || []).map((club) => ({
+                    header: club.club_name,
+                    positions: club.positions || [],
+                    keyPrefix: `cl:${club.club_id}`,
+                  })),
+                  ...(results.constituencies || []).map((ct) => ({
+                    header: `CR — ${ct.constituency_name}`,
+                    positions: ct.positions || [],
+                    keyPrefix: `ct:${ct.constituency_id}`,
+                  })),
+                ];
+                return sections.map((section) => (
+                  <div key={section.keyPrefix} className="space-y-4">
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-text-secondary">
+                      {section.header}
+                    </h3>
+                    {section.positions.map((position) => {
+                      const key = `${section.keyPrefix}:${position.position_id}`;
+                      const expanded = expandedPositions[key];
+                      return (
+                        <Card key={position.position_id}>
+                          <button
+                            onClick={() => setExpandedPositions((prev) => ({ ...prev, [key]: !prev[key] }))}
+                            className="w-full flex items-center justify-between cursor-pointer"
+                          >
+                            <div className="flex items-center gap-3">
+                              <Trophy className="w-5 h-5 text-primary-600" />
+                              <h4 className="text-base font-semibold text-text-primary">
+                                {position.position_name}
+                              </h4>
+                            </div>
+                            {expanded ? (
+                              <ChevronUp className="w-5 h-5 text-text-muted" />
+                            ) : (
+                              <ChevronDown className="w-5 h-5 text-text-muted" />
+                            )}
+                          </button>
 
-                        {expanded && (
-                          <div className="mt-4">
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-sm">
-                                <thead>
-                                  <tr className="border-b border-border">
-                                    <th className="text-left py-2 px-3 font-medium text-text-secondary">Candidate</th>
-                                    <th className="text-right py-2 px-3 font-medium text-text-secondary">Votes</th>
-                                    <th className="text-right py-2 px-3 font-medium text-text-secondary">Percentage</th>
-                                    <th className="text-center py-2 px-3 font-medium text-text-secondary">Rank</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {(position.candidates || []).length === 0 ? (
-                                    <tr>
-                                      <td colSpan={4} className="py-4 px-3 text-center text-text-secondary text-sm">
-                                        No candidates for this position.
-                                      </td>
+                          {expanded && (
+                            <div className="mt-4">
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className="border-b border-border">
+                                      <th className="text-left py-2 px-3 font-medium text-text-secondary">Candidate</th>
+                                      <th className="text-right py-2 px-3 font-medium text-text-secondary">Votes</th>
+                                      <th className="text-right py-2 px-3 font-medium text-text-secondary">Percentage</th>
+                                      <th className="text-center py-2 px-3 font-medium text-text-secondary">Rank</th>
                                     </tr>
-                                  ) : (
-                                    (position.candidates || []).map((candidate) => (
-                                      <tr
-                                        key={candidate.candidate_id}
-                                        className={`border-b border-border/50 ${
-                                          candidate.status === "winner" ? "bg-success-50/50" : ""
-                                        }`}
-                                      >
-                                        <td className="py-3 px-3 flex items-center gap-2">
-                                          {candidate.status === "winner" && (
-                                            <Trophy className="w-4 h-4 text-warning-500" />
-                                          )}
-                                          {candidate.status === "runner_up" && (
-                                            <Medal className="w-4 h-4 text-text-muted" />
-                                          )}
-                                          <span
-                                            className={`font-medium ${
-                                              candidate.status === "winner"
-                                                ? "text-success-700"
-                                                : "text-text-primary"
-                                            }`}
-                                          >
-                                            {candidate.candidate_name}
-                                          </span>
-                                          {candidate.status === "winner" && (
-                                            <Badge variant="success" size="sm">
-                                              Winner
-                                            </Badge>
-                                          )}
-                                        </td>
-                                        <td className="py-3 px-3 text-right text-text-primary font-medium">
-                                          {(candidate.vote_count ?? 0).toLocaleString()}
-                                        </td>
-                                        <td className="py-3 px-3 text-right text-text-secondary">
-                                          {candidate.percentage ?? 0}%
-                                        </td>
-                                        <td className="py-3 px-3 text-center">
-                                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary-100 text-primary-700 text-xs font-bold">
-                                            {candidate.rank}
-                                          </span>
+                                  </thead>
+                                  <tbody>
+                                    {(position.candidates || []).length === 0 ? (
+                                      <tr>
+                                        <td colSpan={4} className="py-4 px-3 text-center text-text-secondary text-sm">
+                                          No candidates for this position.
                                         </td>
                                       </tr>
-                                    ))
-                                  )}
-                                </tbody>
-                              </table>
+                                    ) : (
+                                      (position.candidates || []).map((candidate) => (
+                                        <tr
+                                          key={candidate.candidate_id}
+                                          className={`border-b border-border/50 ${
+                                            candidate.status === "winner" ? "bg-success-50/50" : ""
+                                          }`}
+                                        >
+                                          <td className="py-3 px-3 flex items-center gap-2">
+                                            {candidate.status === "winner" && (
+                                              <Trophy className="w-4 h-4 text-warning-500" />
+                                            )}
+                                            {candidate.status === "runner_up" && (
+                                              <Medal className="w-4 h-4 text-text-muted" />
+                                            )}
+                                            <span
+                                              className={`font-medium ${
+                                                candidate.status === "winner"
+                                                  ? "text-success-700"
+                                                  : "text-text-primary"
+                                              }`}
+                                            >
+                                              {candidate.candidate_name}
+                                            </span>
+                                            {candidate.status === "winner" && (
+                                              <Badge variant="success" size="sm">
+                                                Winner
+                                              </Badge>
+                                            )}
+                                          </td>
+                                          <td className="py-3 px-3 text-right text-text-primary font-medium">
+                                            {(candidate.vote_count ?? 0).toLocaleString()}
+                                          </td>
+                                          <td className="py-3 px-3 text-right text-text-secondary">
+                                            {candidate.percentage ?? 0}%
+                                          </td>
+                                          <td className="py-3 px-3 text-center">
+                                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary-100 text-primary-700 text-xs font-bold">
+                                              {candidate.rank}
+                                            </span>
+                                          </td>
+                                        </tr>
+                                      ))
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </Card>
-                    );
-                  })}
-                </div>
-              ))
+                          )}
+                        </Card>
+                      );
+                    })}
+                  </div>
+                ));
+              })()
             )}
 
             {/* Actions */}

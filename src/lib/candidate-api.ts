@@ -24,6 +24,8 @@ export interface CandidateApplication {
   positionName: string | null;
   nominationClub: string | null;
   contestingPosition: string | null;
+  category: string;
+  electionId: number | null;
   email: string;
   phone: string;
   profilePhotoUrl: string | null;
@@ -51,6 +53,8 @@ export interface CandidateApplicationData {
   position: string;
   nominationClub: string | null;
   contestingPosition: string | null;
+  category: string;
+  electionId: number | null;
   email: string;
   phone: string;
   photo: string | null;
@@ -152,9 +156,11 @@ export interface SubmitApplicationPayload {
   department: string;
   year: string;
   section?: string;
+  category?: "CLUB" | "CR";
+  electionId?: number | null;
   positionId?: number | null;
-  nominationClub: string;
-  contestingPosition: string;
+  nominationClub?: string;
+  contestingPosition?: string;
   email: string;
   phone: string;
   profilePhotoUrl?: string | null;
@@ -225,6 +231,8 @@ export function mapApplication(app: CandidateApplication): CandidateApplicationD
     position: app.contestingPosition || app.positionName || "",
     nominationClub: app.nominationClub || null,
     contestingPosition: app.contestingPosition || null,
+    category: app.category || "CLUB",
+    electionId: app.electionId ?? null,
     email: app.email || "",
     phone: app.phone || "",
     photo: app.profilePhotoUrl || null,

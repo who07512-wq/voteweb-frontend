@@ -126,10 +126,16 @@ function ReviewPageInner({ searchParams }: { searchParams: { get(key: string): s
 
     try {
       for (const { position, candidateId } of toSubmit) {
-        if (!position.clubId) {
-          throw new Error("Position is missing club information.");
+        if (position.clubId === undefined && position.constituencyId === undefined) {
+          throw new Error("Position is missing club or constituency information.");
         }
-        await castVote(electionId, position.clubId, Number(position.id), candidateId);
+        await castVote(
+          electionId,
+          position.clubId,
+          position.constituencyId,
+          Number(position.id),
+          candidateId
+        );
       }
     } catch (err) {
       setIsSubmitting(false);

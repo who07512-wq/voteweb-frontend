@@ -19,6 +19,9 @@ export interface CandidateApplication {
   adminNote: string | null;
   submittedDate: string | null;
   reviewedDate: string | null;
+  category: "CLUB" | "CR";
+  electionId: number | null;
+  constituencyId: number | null;
 }
 
 export interface SubmitApplicationPayload {
@@ -54,8 +57,8 @@ export const candidateApi = {
   // route never existed — approvals were failing silently before this fix).
   listApplications: () =>
     api.get<{ success: boolean; candidates: unknown[]; count: number }>("/admin/candidate-applications"),
-  approveApplication: (id: string) =>
-    api.patch<{ success: boolean; application: unknown }>(`/admin/candidate-applications/${id}/approve`),
+  approveApplication: (id: string, context?: { electionId?: number | string; constituencyId?: number | string }) =>
+    api.patch<{ success: boolean; application: unknown }>(`/admin/candidate-applications/${id}/approve`, context || {}),
   rejectApplication: (id: string, reason: string) =>
     api.patch<{ success: boolean; application: unknown }>(`/admin/candidate-applications/${id}/reject`, { reason }),
   requestApplicationChanges: (id: string, reason: string) =>

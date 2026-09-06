@@ -18,6 +18,13 @@ export interface AdminStudentRecord {
   role: string;
   is_active: boolean;
   voting_eligible?: boolean;
+  department?: string | null;
+  year_or_semester?: string | null;
+  section?: string | null;
+  /** Pre-fill source from the student's Class Representative application. */
+  applied_department?: string | null;
+  applied_year?: string | null;
+  applied_section?: string | null;
 }
 
 export interface AdminElectionRecord {
@@ -30,11 +37,23 @@ export interface AdminElectionRecord {
 
 export interface AdminPositionRecord {
   id: number;
-  club_id: number;
+  club_id: number | null;
+  constituency_id: number | null;
   name: string;
   description: string | null;
   display_order: number;
   is_active: boolean;
+}
+
+export interface AdminConstituencyRecord {
+  id: number;
+  election_id: number;
+  department: string;
+  year: string;
+  section: string;
+  name: string;
+  is_active: boolean;
+  created_at?: string;
 }
 
 export interface AdminAnnouncementRecord {
@@ -77,7 +96,7 @@ export const adminApi = {
   getStudents: () => api.get<{ students?: AdminStudentRecord[] } | AdminStudentRecord[]>("/admin/students"),
 
   // Update a student (PATCH /admin/students/:id) — voting eligibility + role management
-  updateStudent: (id: number, patch: { voting_eligible?: boolean; role?: string; name?: string; email?: string | null }) =>
+  updateStudent: (id: number, patch: { voting_eligible?: boolean; role?: string; name?: string; email?: string | null; department?: string; year_or_semester?: string; section?: string | null }) =>
     api.patch<{ data: AdminStudentRecord }>(`/admin/students/${id}`, patch),
 
   // Elections (GET /admin/elections)
@@ -128,4 +147,14 @@ export const adminApi = {
   getPositions: () => api.get<{ data: AdminPositionRecord[] } | AdminPositionRecord[]>("/positions?active_only=false"),
   updatePosition: (id: number | string, body: { name?: string; description?: string; display_order?: number }) =>
     api.patch(`/admin/positions/${id}`, body),
+
+  // ---- Class Representative constituencies (real /constituencies + /admin/constituencies) ----
+  getConstituencies: (electionId: number | string) =>
+    api.get<{ data: AdminConstituencyRecord[] }>(`/constituencies?election_id=${electionId}&active_only=false`),
+  createConstituency: (body: { election_id: number | string; department: string; year: string; section: string; name?: string }) =>
+    api.post<{ data: AdminConstituencyRecord }>("/admin/constituencies", body),
+  updateConstituency: (id: number | string, body: { name?: string; is_active?: boolean }) =>
+    api.patch<{ data: AdminConstituencyRecord }>(`/admin/constituencies/${id}`, body),
+  deleteConstituency: (id: number | string) =>
+    api.delete(`/admin/constituencies/${id}`),
 };

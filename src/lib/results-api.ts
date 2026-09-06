@@ -24,6 +24,12 @@ export interface ResultsClub {
   positions: ResultsPosition[];
 }
 
+export interface ResultsConstituency {
+  constituencyId: number;
+  constituencyName: string;
+  positions: ResultsPosition[];
+}
+
 export interface ElectionResultsResponse {
   electionId: number;
   electionName: string;
@@ -33,6 +39,7 @@ export interface ElectionResultsResponse {
   totalVotes: number;
   participation: number;
   clubs: ResultsClub[];
+  constituencies: ResultsConstituency[];
 }
 
 /* ------------------------- UI-facing mapped shape ------------------------- */
@@ -52,6 +59,8 @@ export interface MappedPositionResult {
   abstained: number;
   candidates: MappedCandidateResult[];
   isTie: boolean;
+  /** Present for Class Representative seats, e.g. "BCA 2nd Year Section A". */
+  scope?: string;
 }
 
 export interface MappedElectionResults {
@@ -109,8 +118,11 @@ function formatDate(iso: string | null): string {
 export function mapResults(data: ElectionResultsResponse): MappedElectionResults {
   const positions: MappedPositionResult[] = [];
 
-  for (const club of data.clubs) {
-    for (const pos of club.positions) {
+  const appendScope = (
+    scope: string | undefined,
+    scopePositions: ResultsPosition[]
+  ) => {
+    for (const pos of scopePositions) {
       const sorted = [...pos.candidates].sort((a, b) => b.voteCount - a.voteCount);
       // Tie when the top two candidates share the same vote count
       const isTie =
@@ -122,6 +134,7 @@ export function mapResults(data: ElectionResultsResponse): MappedElectionResults
         totalVotes,
         abstained: 0,
         isTie,
+        scope,
         candidates: sorted.map((c) => ({
           id: String(c.candidateId),
           name: c.candidateName,
@@ -140,6 +153,13 @@ export function mapResults(data: ElectionResultsResponse): MappedElectionResults
         })),
       });
     }
+  };
+
+  for (const club of data.clubs) {
+    appendScope(undefined, club.positions);
+  }
+  for (const constituency of data.constituencies) {
+    appendScope(constituency.constituencyName, constituency.positions);
   }
 
   return {

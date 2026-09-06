@@ -5,7 +5,7 @@ import { AdminLayout } from "@/components/admin-dashboard/AdminLayout";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { adminApi, type AdminElectionRecord } from "@/lib/api/admin";
+import { adminApi, type AdminElectionRecord, type AdminConstituencyRecord } from "@/lib/api/admin";
 import {
   Vote,
   Calendar,
@@ -17,7 +17,13 @@ import {
   Edit,
   RefreshCw,
   Inbox,
+  Plus,
+  Trash2,
 } from "lucide-react";
+
+const DEPARTMENT_OPTIONS = ["BBA", "BCA", "BCOM", "MBA", "MCA"];
+const CR_YEAR_OPTIONS = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
+const CR_SECTION_OPTIONS = ["A", "B", "C", "D", "E", "F"];
 
 const STATUS_OPTIONS = ["DRAFT", "SCHEDULED", "OPEN", "CLOSED", "PUBLISHED"] as const;
 
@@ -146,6 +152,15 @@ export default function ElectionManagementPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
+  // Class Representative constituencies for the selected election
+  const [constituencies, setConstituencies] = useState<AdminConstituencyRecord[]>([]);
+  const [constituenciesLoading, setConstituenciesLoading] = useState(false);
+  const [crModalOpen, setCrModalOpen] = useState(false);
+  const [crForm, setCrForm] = useState({ department: "", year: "", section: "" });
+  const [crSaving, setCrSaving] = useState(false);
+  const [crError, setCrError] = useState("");
+  const [crToast, setCrToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
   const selected = elections.find((e) => e.id === selectedId) || null;
 
   const load = useCallback(async () => {
@@ -207,6 +222,72 @@ export default function ElectionManagementPage() {
     setStartDate(selected.start_time ? new Date(selected.start_time).toISOString().slice(0, 16) : "");
     setEndDate(selected.end_time ? new Date(selected.end_time).toISOString().slice(0, 16) : "");
   }, [selectedId, elections]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load CR constituencies whenever the selected election changes
+  const loadConstituencies = useCallback(async () => {
+    if (selectedId === null) return;
+    setConstituenciesLoading(true);
+    try {
+      const res = await adminApi.getConstituencies(selectedId);
+      const rows: AdminConstituencyRecord[] = Array.isArray(res)
+        ? res
+        : ((res as { data?: AdminConstituencyRecord[] }).data as AdminConstituencyRecord[]) || [];
+      setConstituencies(rows);
+    } catch {
+      setConstituencies([]);
+    }
+    setConstituenciesLoading(false);
+  }, [selectedId]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadConstituencies();
+  }, [loadConstituencies]);
+
+  const showCrToast = (type: "success" | "error", message: string) => {
+    setCrToast({ type, message });
+    setTimeout(() => setCrToast(null), 3500);
+  };
+
+  const canModifyConstituencies =
+    selected && (selected.status === "DRAFT" || selected.status === "SCHEDULED");
+
+  const handleCreateConstituency = async () => {
+    if (!selected) return;
+    if (!crForm.department || !crForm.year || !crForm.section) {
+      setCrError("Department, year and section are required.");
+      return;
+    }
+    setCrSaving(true);
+    setCrError("");
+    try {
+      await adminApi.createConstituency({
+        election_id: selected.id,
+        department: crForm.department,
+        year: crForm.year,
+        section: crForm.section,
+      });
+      showCrToast("success", `${crForm.department} ${crForm.year} Section ${crForm.section} added.`);
+      setCrModalOpen(false);
+      setCrForm({ department: "", year: "", section: "" });
+      await loadConstituencies();
+    } catch (e) {
+      setCrError(e instanceof Error ? e.message : "Failed to create constituency.");
+    }
+    setCrSaving(false);
+  };
+
+  const handleDeactivateConstituency = async (id: number, name: string) => {
+    setCrSaving(true);
+    try {
+      await adminApi.deleteConstituency(id);
+      showCrToast("success", `${name} deactivated.`);
+      await loadConstituencies();
+    } catch (e) {
+      showCrToast("error", e instanceof Error ? e.message : "Failed to deactivate constituency.");
+    }
+    setCrSaving(false);
+  };
 
   const runAction = async (fn: () => Promise<unknown>) => {
     setActionBusy(true);
@@ -450,6 +531,88 @@ export default function ElectionManagementPage() {
                   )}
                 </Card>
 
+                {/* Class Representative Constituencies */}
+                <Card className="p-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-5 w-5 text-primary-600" />
+                      <h2 className="text-lg font-semibold text-text-primary">
+                        Class Representative Constituencies
+                      </h2>
+                    </div>
+                    {canModifyConstituencies && (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={() => {
+                          setCrError("");
+                          setCrModalOpen(true);
+                        }}
+                        disabled={crSaving}
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add Constituency
+                      </Button>
+                    )}
+                  </div>
+
+                  {crToast && (
+                    <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-medium text-white ${crToast.type === "success" ? "bg-success" : "bg-error"}`}>
+                      {crToast.message}
+                    </div>
+                  )}
+
+                  {constituenciesLoading ? (
+                    <p className="text-sm text-text-secondary">Loading constituencies…</p>
+                  ) : constituencies.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Inbox className="w-8 h-8 text-text-muted mx-auto mb-2" />
+                      <p className="text-sm text-text-secondary">
+                        No Class Representative constituencies in this election yet.
+                      </p>
+                      {canModifyConstituencies && (
+                        <p className="text-xs text-text-muted mt-1">
+                          Each constituency creates its own Class Representative ballot seat.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {constituencies.map((c) => (
+                        <div
+                          key={c.id}
+                          className={`p-4 rounded-xl border ${
+                            c.is_active ? "border-border bg-white" : "border-border bg-bg-tertiary opacity-70"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <p className="font-semibold text-text-primary text-sm">
+                              {c.name || `${c.department} ${c.year} Section ${c.section}`}
+                            </p>
+                            <Badge variant={c.is_active ? "success" : "neutral"}>
+                              {c.is_active ? "Active" : "Inactive"}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-text-secondary">
+                            {c.department} · {c.year} · Section {c.section}
+                          </p>
+                          {canModifyConstituencies && c.is_active && (
+                            <button
+                              onClick={() => handleDeactivateConstituency(c.id, c.name)}
+                              disabled={crSaving}
+                              className="mt-3 inline-flex items-center gap-1 text-xs text-error-600 hover:underline disabled:opacity-50"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Deactivate
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+
                 {/* Danger Zone — real actions */}
                 <Card className="p-6 border-2 border-error-200">
                   <div className="flex items-center gap-2 mb-6">
@@ -520,6 +683,83 @@ export default function ElectionManagementPage() {
                   onCancel={() => setPublishModalOpen(false)}
                   requiresInput
                 />
+
+                {/* Add CR Constituency Modal */}
+                {crModalOpen && selected && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-50">
+                            <Users className="h-5 w-5 text-primary-600" />
+                          </div>
+                          <h3 className="text-lg font-semibold text-text-primary">Add Constituency</h3>
+                        </div>
+                        <button onClick={() => setCrModalOpen(false)} className="text-text-muted hover:text-text-secondary cursor-pointer">
+                          <X className="h-5 w-5" />
+                        </button>
+                      </div>
+                      <p className="text-sm text-text-secondary mb-4">
+                        Creates a Class Representative seat for {selected.name}. Students in this
+                        department, year and section vote for the Class Representative.
+                      </p>
+                      <div className="grid grid-cols-1 gap-3 mb-4">
+                        <div>
+                          <label className="block text-sm font-medium text-text-primary mb-1">Department</label>
+                          <select
+                            value={crForm.department}
+                            onChange={(e) => setCrForm((f) => ({ ...f, department: e.target.value }))}
+                            className="w-full border border-border-strong rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer"
+                          >
+                            <option value="">Select department</option>
+                            {DEPARTMENT_OPTIONS.map((d) => (
+                              <option key={d} value={d}>{d}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-text-primary mb-1">Year</label>
+                          <select
+                            value={crForm.year}
+                            onChange={(e) => setCrForm((f) => ({ ...f, year: e.target.value }))}
+                            className="w-full border border-border-strong rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer"
+                          >
+                            <option value="">Select year</option>
+                            {CR_YEAR_OPTIONS.map((y) => (
+                              <option key={y} value={y}>{y}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-text-primary mb-1">Section</label>
+                          <select
+                            value={crForm.section}
+                            onChange={(e) => setCrForm((f) => ({ ...f, section: e.target.value }))}
+                            className="w-full border border-border-strong rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer"
+                          >
+                            <option value="">Select section</option>
+                            {CR_SECTION_OPTIONS.map((s) => (
+                              <option key={s} value={s}>{s}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      {crError && (
+                        <p className="mb-4 text-sm text-error-600 bg-error-50 border border-error-200 rounded-xl px-3 py-2">
+                          {crError}
+                        </p>
+                      )}
+                      <div className="flex justify-end gap-3">
+                        <Button variant="outline" size="sm" onClick={() => setCrModalOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button variant="primary" size="sm" onClick={handleCreateConstituency} disabled={crSaving}>
+                          {crSaving ? "Creating…" : "Add Constituency"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </>

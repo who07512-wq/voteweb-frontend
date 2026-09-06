@@ -28,8 +28,9 @@ export interface BallotCandidate {
 
 export interface BallotPosition {
   id: number;
-  clubId: number;
-  clubName: string;
+  clubId?: number;
+  clubName?: string;
+  constituencyId?: number;
   name: string;
   description: string;
   order: number;
@@ -59,7 +60,8 @@ interface ClubRow {
 
 interface PositionRow {
   id: number;
-  club_id: number;
+  club_id: number | null;
+  constituency_id: number | null;
   name: string;
   description?: string | null;
   display_order?: number | null;
@@ -69,6 +71,16 @@ interface CandidateRow {
   id: number;
   name: string;
   description?: string | null;
+}
+
+interface ConstituencyRow {
+  id: number;
+  election_id: number;
+  department: string;
+  year: string;
+  section: string;
+  name: string;
+  is_active: boolean;
 }
 
 /** GET /elections - all elections. */
@@ -91,8 +103,10 @@ export async function findOpenElection(): Promise<ElectionInfo | null> {
 }
 
 /**
- * Compose the live ballot: election clubs -> positions -> candidates.
- * Positions with no active candidates are omitted.
+ * Compose the live ballot: election clubs -> positions -> candidates, plus
+ * the authenticated student's own Class Representative seat (constituency ->
+ * its CR position -> candidates). Positions with no active candidates are
+ * omitted. Club and CR positions are ordered together by display_order.
  */
 export async function fetchBallot(electionId: number): Promise<BallotPosition[]> {
   const clubs = await api.get<ClubRow[]>(`/elections/${electionId}/clubs`);
@@ -120,6 +134,36 @@ export async function fetchBallot(electionId: number): Promise<BallotPosition[]>
     }
   }
 
+  // The student's own CR seat (backend resolves by department/year/section).
+  try {
+    const { constituency } = await api.get<{ constituency: ConstituencyRow | null }>(
+      `/elections/${electionId}/votes/my-constituency`
+    );
+    if (constituency) {
+      const positions = await api.get<PositionRow[]>(`/constituencies/${constituency.id}/positions`);
+      for (const pos of positions || []) {
+        const candidates = await api.get<CandidateRow[]>(`/positions/${pos.id}/candidates`);
+        const mapped: BallotCandidate[] = (candidates || []).map((c) => ({
+          id: Number(c.id),
+          name: c.name || "",
+          description: c.description || "",
+        }));
+        if (mapped.length === 0) continue;
+        out.push({
+          id: Number(pos.id),
+          constituencyId: Number(constituency.id),
+          name: pos.name || "",
+          description: pos.description || "",
+          order: Number(pos.display_order) || out.length,
+          candidates: mapped,
+        });
+      }
+    }
+  } catch {
+    // Non-fatal: students without a CR seat (or without a section on file)
+    // simply see the club positions.
+  }
+
   out.sort((a, b) => a.order - b.order);
   return out;
 }
@@ -144,16 +188,19 @@ export async function checkVoted(
   };
 }
 
-/** POST /elections/:id/votes - cast one vote (one per position). */
+/** POST /elections/:id/votes - cast one vote (one per position). Pass
+ *  clubId for a club seat or constituencyId for a Class Representative seat. */
 export async function castVote(
   electionId: number,
-  clubId: number,
+  clubId: number | undefined,
+  constituencyId: number | undefined,
   positionId: number,
   candidateId: number
 ): Promise<VoteReceipt> {
   const data = await api.post<{ receipt?: VoteReceipt }>(`/elections/${electionId}/votes`, {
     election_id: electionId,
-    club_id: clubId,
+    ...(clubId !== undefined ? { club_id: clubId } : {}),
+    ...(constituencyId !== undefined ? { constituency_id: constituencyId } : {}),
     position_id: positionId,
     candidate_id: candidateId,
   });
@@ -211,6 +258,7 @@ export function mapBallotToVotingPositions(
     name: p.name,
     order: index,
     clubId: p.clubId,
+    constituencyId: p.constituencyId,
     candidates: p.candidates.map((c): VotingCandidate => ({
       id: String(c.id),
       name: c.name,

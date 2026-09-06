@@ -21,6 +21,9 @@ export interface CandidateApplicationData {
   adminNote: string | null;
   submittedDate: string | null;
   reviewedDate: string | null;
+  category: "CLUB" | "CR";
+  electionId: number | null;
+  constituencyId: number | null;
 }
 
 export const POSITION_OPTIONS = [
@@ -79,6 +82,9 @@ export async function getAllApplications(): Promise<CandidateApplicationData[]> 
       adminNote: a.changesRequestedReason ?? null,
       submittedDate: a.submittedAt || null,
       reviewedDate: a.reviewedAt || null,
+      category: (a.category === "CR" || a.category === "CLASS_REPRESENTATIVE" ? "CR" : "CLUB"),
+      electionId: a.electionId ?? null,
+      constituencyId: a.constituencyId ?? null,
     }));
   } catch {
     return [];
@@ -169,11 +175,12 @@ export async function submitApplication(
 export async function updateApplicationStatus(
   id: string,
   status: ApplicationStatus,
-  rejectionReason?: string
+  rejectionReason?: string,
+  context?: { electionId?: number | string; constituencyId?: number | string }
 ): Promise<CandidateApplicationData> {
   let result: any;
   if (status === "approved") {
-    result = await candidateApi.approveApplication(id);
+    result = await candidateApi.approveApplication(id, context);
   } else if (status === "rejected") {
     result = await candidateApi.rejectApplication(id, rejectionReason || "Application rejected");
   } else if (status === "changes_requested") {
@@ -200,5 +207,8 @@ export async function updateApplicationStatus(
     adminNote: app?.changesRequestedReason ?? null,
     submittedDate: app?.submittedAt || null,
     reviewedDate: app?.reviewedAt || null,
+    category: (app?.category === "CR" || app?.category === "CLASS_REPRESENTATIVE" ? "CR" : "CLUB"),
+    electionId: app?.electionId ?? null,
+    constituencyId: app?.constituencyId ?? null,
   };
 }

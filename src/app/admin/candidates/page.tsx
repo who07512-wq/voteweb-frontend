@@ -10,6 +10,7 @@ import {
   getAllApplications,
   type CandidateApplicationData,
 } from "@/lib/candidate-application-store"
+import { adminApi, type AdminElectionRecord, type AdminConstituencyRecord } from "@/lib/api/admin"
 import {
   Search,
   Eye,
@@ -38,6 +39,13 @@ export default function CandidateManagementPage() {
   const [rejectReason, setRejectReason] = useState("")
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null)
 
+  // CR approval context: election + constituency assignment
+  const [elections, setElections] = useState<AdminElectionRecord[]>([])
+  const [constituencies, setConstituencies] = useState<AdminConstituencyRecord[]>([])
+  const [approveElectionId, setApproveElectionId] = useState<number | "">("")
+  const [approveConstituencyId, setApproveConstituencyId] = useState<number | "">("")
+  const [approveError, setApproveError] = useState("")
+
   // Courses offered on the candidate application form + any department seen in real data
   const FORM_DEPARTMENTS = ["BBA", "BCA", "BCOM", "MBA", "MCA"]
   const statuses = ["all", "draft", "submitted", "under_review", "changes_requested", "approved", "rejected"]
@@ -55,6 +63,19 @@ export default function CandidateManagementPage() {
       .then(setCandidates)
       .catch(() => setCandidates([]))
       .finally(() => setLoading(false))
+
+    // Election + constituency lists power the CR approval assignment
+    adminApi
+      .getElections()
+      .then((res) => {
+        const rows: AdminElectionRecord[] = Array.isArray(res)
+          ? res
+          : ((res as { elections?: AdminElectionRecord[] }).elections as AdminElectionRecord[]) ||
+            ((res as { data?: AdminElectionRecord[] }).data as AdminElectionRecord[]) ||
+            []
+        setElections(rows)
+      })
+      .catch(() => setElections([]))
   }, [])
 
   const filteredCandidates = useMemo(() => {
@@ -92,11 +113,48 @@ export default function CandidateManagementPage() {
     setShowRejectModal(false)
     setChangesText("")
     setRejectReason("")
+    setApproveElectionId("")
+    setApproveConstituencyId("")
+    setApproveError("")
   }
+
+  // Load constituencies when an election is chosen for a CR approval
+  useEffect(() => {
+    if (approveElectionId === "") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setConstituencies([])
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setApproveConstituencyId("")
+      return
+    }
+    adminApi
+      .getConstituencies(approveElectionId)
+      .then((res) => {
+        const rows: AdminConstituencyRecord[] = Array.isArray(res)
+          ? res
+          : ((res as { data?: AdminConstituencyRecord[] }).data as AdminConstituencyRecord[]) || []
+        setConstituencies(rows.filter((c) => c.is_active))
+      })
+      .catch(() => setConstituencies([]))
+    setApproveConstituencyId("")
+  }, [approveElectionId])
 
   const handleApprove = async () => {
     if (!selectedCandidate) return;
-    await updateApplicationStatus(selectedCandidate.id, "approved");
+    if (selectedCandidate.category === "CR") {
+      if (approveElectionId === "") {
+        setApproveError("Select the election for this CR seat.");
+        return;
+      }
+      if (approveConstituencyId === "") {
+        setApproveError("Select the constituency for this CR seat.");
+        return;
+      }
+    }
+    await updateApplicationStatus(selectedCandidate.id, "approved", undefined, {
+      electionId: approveElectionId === "" ? undefined : approveElectionId,
+      constituencyId: approveConstituencyId === "" ? undefined : approveConstituencyId,
+    });
     showToast(`${selectedCandidate.name} has been approved.`);
     closeReview();
     getAllApplications().then(setCandidates).catch(() => {});
@@ -208,6 +266,7 @@ export default function CandidateManagementPage() {
                       <th className="text-left px-4 py-3 text-xs font-semibold text-text-secondary uppercase">ID</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-text-secondary uppercase">Name</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-text-secondary uppercase">Position</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-text-secondary uppercase">Category</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-text-secondary uppercase">Department</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-text-secondary uppercase">Application Status</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-text-secondary uppercase">Submitted</th>
@@ -222,6 +281,11 @@ export default function CandidateManagementPage() {
                           <div className="font-medium text-text-primary">{candidate.name}</div>
                         </td>
                         <td className="px-4 py-3 text-sm text-text-primary">{candidate.position}</td>
+                        <td className="px-4 py-3">
+                          <Badge variant={candidate.category === "CR" ? "info" : "neutral"}>
+                            {candidate.category === "CR" ? "CR" : "Club"}
+                          </Badge>
+                        </td>
                         <td className="px-4 py-3 text-sm text-text-primary">{candidate.department}</td>
                         <td className="px-4 py-3">
                           <Badge variant={getStatusBadge(candidate.status)}>
@@ -459,7 +523,7 @@ export default function CandidateManagementPage() {
           </div>
         )}
 
-        {showApproveModal && (
+        {showApproveModal && selectedCandidate && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center">
             <div className="absolute inset-0 bg-black/50" onClick={() => setShowApproveModal(false)} />
             <div className="relative bg-white dark:bg-[#252540] rounded-xl shadow-2xl max-w-md w-full mx-4 p-6 space-y-4">
@@ -469,9 +533,57 @@ export default function CandidateManagementPage() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-text-primary">Approve Candidate?</h3>
-                  <p className="text-sm text-text-secondary">This candidate will gain access to the candidate dashboard.</p>
+                  <p className="text-sm text-text-secondary">
+                    {selectedCandidate.category === "CR"
+                      ? "Assign the CR seat this candidate will contest. This also creates the Class Representative ballot seat."
+                      : "This candidate will gain access to the candidate dashboard."}
+                  </p>
                 </div>
               </div>
+
+              {selectedCandidate.category === "CR" && (
+                <div className="space-y-3 pt-1">
+                  <div>
+                    <label className="block text-xs font-medium text-text-secondary mb-1">
+                      Election <span className="text-error-500">*</span>
+                    </label>
+                    <select
+                      value={approveElectionId}
+                      onChange={(e) => setApproveElectionId(e.target.value === "" ? "" : Number(e.target.value))}
+                      className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-white dark:bg-[#252540] cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="">Select election</option>
+                      {elections.map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {e.name} ({e.status})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-text-secondary mb-1">
+                      Constituency <span className="text-error-500">*</span>
+                    </label>
+                    <select
+                      value={approveConstituencyId}
+                      onChange={(e) => setApproveConstituencyId(e.target.value === "" ? "" : Number(e.target.value))}
+                      disabled={approveElectionId === ""}
+                      className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-white dark:bg-[#252540] cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="">
+                        {approveElectionId === "" ? "Select an election first" : "Select constituency"}
+                      </option>
+                      {constituencies.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name || `${c.department} ${c.year} Section ${c.section}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {approveError && <p className="text-sm text-error-600">{approveError}</p>}
+                </div>
+              )}
+
               <div className="flex justify-end gap-3 pt-2">
                 <Button variant="outline" onClick={() => setShowApproveModal(false)}>
                   Cancel
