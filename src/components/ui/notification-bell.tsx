@@ -38,8 +38,19 @@ function mapRow(row: ApiNotificationRow): Notification {
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
-  const unread = notifications.filter(n => !n.read).length;
+
+  const refreshCount = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/notifications/unread-count`, { credentials: "include" });
+      if (!res.ok) return;
+      const body = await res.json().catch(() => ({}));
+      setUnreadCount(body.data?.unread_count ?? 0);
+    } catch {
+      // Bell is non-critical; keep whatever we have.
+    }
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -56,38 +67,42 @@ export default function NotificationBell() {
   useEffect(() => {
     let alive = true;
     (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/notifications?limit=6`, { credentials: "include" });
-        if (!res.ok || !alive) return;
-        const body = await res.json().catch(() => ({}));
-        const rows: ApiNotificationRow[] = body.data || [];
-        if (alive) setNotifications(rows.map(mapRow));
-      } catch {
-        // Bell is non-critical; keep whatever we have.
-      }
+      await refreshCount();
+      if (!alive) return;
+      await load();
     })();
+    const poll = setInterval(() => {
+      refreshCount();
+    }, 30000);
+    const onFocus = () => {
+      refreshCount();
+    };
+    window.addEventListener("focus", onFocus);
     const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
     document.addEventListener("mousedown", handler);
     return () => {
       alive = false;
+      clearInterval(poll);
+      window.removeEventListener("focus", onFocus);
       document.removeEventListener("mousedown", handler);
     };
-  }, []);
+  }, [refreshCount, load]);
 
   return (
     <div className="relative" ref={ref}>
-      <button onClick={() => { setOpen(!open); if (!open) load(); }}
+      <button onClick={() => { setOpen(!open); if (!open) { load(); refreshCount(); } }}
+        aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : "Notifications"}
         className="relative p-2 rounded-full hover:bg-bg-tertiary transition-colors text-text-secondary hover:text-primary-600">
         <Bell size={20} />
-        {unread > 0 && (
-          <span className="absolute top-1 right-1 w-2 h-2 bg-error-600 rounded-full" />
+        {unreadCount > 0 && (
+          <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-error-600 rounded-full ring-2 ring-white dark:ring-[#252540]" />
         )}
       </button>
       {open && (
         <div className="fixed sm:absolute right-3 sm:right-0 top-[4.25rem] sm:top-full sm:mt-2 w-[calc(100vw-1.5rem)] sm:w-80 max-w-[calc(100vw-1.5rem)] bg-white dark:bg-[#252540] rounded-[14px] shadow-lg border border-border py-2 z-50 max-h-[70vh] overflow-y-auto">
           <div className="px-4 py-2 border-b border-border flex items-center justify-between">
             <span className="font-semibold text-sm text-text-primary">Notifications</span>
-            {unread > 0 && <span className="text-xs text-text-secondary">{unread} new</span>}
+            {unreadCount > 0 && <span className="text-xs text-text-secondary">{unreadCount} new</span>}
           </div>
           {notifications.length === 0 && (
             <p className="px-4 py-6 text-center text-xs text-text-secondary">No notifications</p>
