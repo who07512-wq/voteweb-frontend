@@ -6,7 +6,7 @@ import Link from "next/link";
 export default function Maintenance() {
   return (
     <div className="min-h-screen bg-bg-tertiary flex items-center justify-center px-4">
-      <div className="bg-white dark:bg-[#252540] rounded-[20px] border border-border p-10 max-w-md w-full text-center">
+      <div className="bg-white dark:bg-[#252540] rounded-[20px] border border-border p-6 sm:p-10 max-w-md w-full text-center">
         <div className="w-16 h-16 bg-warning-600/10 rounded-full flex items-center justify-center mx-auto mb-6">
           <Wrench size={28} className="text-warning-600" />
         </div>
@@ -18,7 +18,7 @@ export default function Maintenance() {
             <span className="font-medium">Estimated completion: {getNextMaintenanceWindow()}</span>
           </div>
         </div>
-        <div className="flex items-center justify-center gap-3">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <button onClick={() => window.history.back()}
             className="flex items-center gap-2 bg-bg-tertiary text-primary-600 px-6 py-3 rounded-[12px] text-sm font-semibold hover:bg-border transition-colors">
             <ArrowLeft size={16} /> Go Back

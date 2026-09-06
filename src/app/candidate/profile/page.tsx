@@ -364,7 +364,7 @@ export default function CandidateProfilePage() {
 
                 <div className="space-y-3">
                   <h3 className="text-sm font-medium text-text-secondary">Verified Information</h3>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="p-3 rounded-xl bg-bg-tertiary">
                       <p className="text-[10px] text-text-secondary uppercase tracking-wider mb-1">Full Name 🔒</p>
                       <p className="text-sm font-semibold text-text-primary">{profile.name}</p>

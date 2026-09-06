@@ -165,7 +165,7 @@ export default function AdminDashboardPage() {
               Live database statistics for your elections.
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <Badge variant={stats.elections.open > 0 ? "success" : "neutral"}>
               {stats.elections.open > 0 ? `${stats.elections.open} Election(s) Open` : "No Open Elections"}
             </Badge>

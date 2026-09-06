@@ -38,7 +38,7 @@ const DecorativeShapes: React.FC<{ className?: string }> = ({ className }) => {
 
 export const AuthLayout: React.FC<AuthLayoutProps> = ({ children, className }) => {
   return (
-    <div className={cn("min-h-screen bg-bg-primary relative overflow-x-hidden", className)}>
+    <div className={cn("min-h-screen bg-bg-primary relative", className)}>
       <DecorativeShapes />
 
       <div className="relative min-h-screen flex flex-col lg:flex-row">

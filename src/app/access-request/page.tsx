@@ -126,7 +126,7 @@ export default function AccessRequestPage() {
             <input type="text" value={form.fullName} onChange={set("fullName")} required maxLength={255} className={inputCls} placeholder="As per college records" />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Student ID *</label>
               <input type="text" value={form.studentId} onChange={set("studentId")} required maxLength={64} className={inputCls} />
@@ -137,7 +137,7 @@ export default function AccessRequestPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Course / Department</label>
               <input type="text" value={form.department} onChange={set("department")} maxLength={120} className={inputCls} placeholder="e.g. BCA" />

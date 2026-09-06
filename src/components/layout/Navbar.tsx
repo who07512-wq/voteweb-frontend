@@ -52,9 +52,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMenu, studentName }) => 
         </button>
 
         {/* Mobile brand */}
-        <div className="flex items-center gap-2 lg:hidden">
-          <img src="/image/dbit logo.jpeg" alt="DBIT Logo" className="w-8 h-8 rounded-xl object-cover" />
-          <span className="font-semibold text-text-primary text-sm tracking-wide">Don Bosco Institute of Technology</span>
+        <div className="flex items-center gap-2 lg:hidden min-w-0 flex-1">
+          <img src="/image/dbit logo.jpeg" alt="DBIT Logo" className="w-8 h-8 rounded-xl object-cover flex-none" />
+          <span className="font-semibold text-text-primary text-sm tracking-wide truncate">Don Bosco Institute of Technology</span>
         </div>
 
         {/* Desktop context */}

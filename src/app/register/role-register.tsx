@@ -107,17 +107,6 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     return message.includes("already signed in") || message.includes("session already");
   };
 
-  // After clicking "Send code" while a stale Clerk session was active, retry
-  // the send automatically once the sign-out completes.
-  useEffect(() => {
-    if (!pendingSend || !authLoaded) return;
-    if (!isSignedIn) {
-      setPendingSend(false);
-      sendCode();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingSend, authLoaded, isSignedIn]);
-
   // ---- Stage 1: send the one-time code ----
   const sendCode = async () => {
     setError("");
@@ -131,7 +120,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     }
     // An active Clerk session blocks starting a new code flow (Clerk
     // rejects with "You're already signed in."). Sign out of the stale
-    // session first; the effect above retries the send once signed out.
+    // session first; the effect below retries the send once signed out.
     if (authLoaded && isSignedIn) {
       setPendingSend(true);
       setIsSending(true);
@@ -181,6 +170,17 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       setIsSending(false);
     }
   };
+
+  // After clicking "Send code" while a stale Clerk session was active, retry
+  // the send automatically once the sign-out completes.
+  useEffect(() => {
+    if (!pendingSend || !authLoaded) return;
+    if (!isSignedIn) {
+      setPendingSend(false);
+      sendCode();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSend, authLoaded, isSignedIn]);
 
   // ---- Stage 2: verify the code → Clerk session becomes active ----
   const verifyCode = async (): Promise<boolean> => {

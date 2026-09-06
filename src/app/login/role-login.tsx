@@ -169,17 +169,6 @@ export function RoleLoginPage({
     return false;
   };
 
-  // After clicking "Send code" while a stale Clerk session was active, retry
-  // the send automatically once the sign-out completes.
-  useEffect(() => {
-    if (!pendingSend || !authLoaded) return;
-    if (!isSignedIn) {
-      setPendingSend(false);
-      sendEmailCode();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingSend, authLoaded, isSignedIn]);
-
   const sendEmailCode = async () => {
     setError("");
     if (!email || !email.includes("@")) {
@@ -192,7 +181,7 @@ export function RoleLoginPage({
     }
     // An active Clerk session blocks starting a new code flow (Clerk
     // rejects with "You're already signed in."). Sign out of the stale
-    // session first; the effect above retries the send once signed out.
+    // session first; the effect below retries the send once signed out.
     if (authLoaded && isSignedIn) {
       setPendingSend(true);
       setIsSending(true);
@@ -260,6 +249,17 @@ export function RoleLoginPage({
       setIsSending(false);
     }
   };
+
+  // After clicking "Send code" while a stale Clerk session was active, retry
+  // the send automatically once the sign-out completes.
+  useEffect(() => {
+    if (!pendingSend || !authLoaded) return;
+    if (!isSignedIn) {
+      setPendingSend(false);
+      sendEmailCode();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSend, authLoaded, isSignedIn]);
 
   const verifyEmailCode = async () => {
     setError("");

@@ -221,7 +221,7 @@ export default function StudentResultsPage() {
                   <Calendar className="w-3 h-3 inline mr-1" />
                   Published: {results.publishedDate}
                 </span>
-                <span className="text-xs text-text-secondary">
+                <span className="text-xs text-text-secondary min-w-0 break-words">
                   {results.electionName}
                 </span>
               </div>
@@ -262,7 +262,7 @@ export default function StudentResultsPage() {
           <h3 className="text-sm font-bold text-text-primary mb-4">
             Voter Participation
           </h3>
-          <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="grid grid-cols-1 min-[400px]:grid-cols-3 gap-4 mb-4">
             <div className="text-center">
               <p className="text-2xl font-bold text-text-primary">
                 {results.eligibleStudents.toLocaleString()}
@@ -444,7 +444,7 @@ export default function StudentResultsPage() {
 
                 {/* Expanded breakdown */}
                 {isExpanded && (
-                  <div className="mt-4 border-t border-border pt-4">
+                  <div className="mt-4 border-t border-border pt-4 overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-border">
@@ -543,7 +543,7 @@ export default function StudentResultsPage() {
         </Card>
 
         {/* Actions */}
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <Button
             variant="secondary"
             size="sm"

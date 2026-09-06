@@ -177,16 +177,16 @@ export default function CadResultsPage() {
                           <p className="text-sm font-medium text-text-secondary mb-2">{pos.position_name}</p>
                           <div className="space-y-2">
                             {pos.candidates.map((c) => (
-                              <div key={c.candidate_id} className="flex items-center gap-3">
-                                <span className="text-sm text-text-primary w-40 truncate">{c.candidate_name}</span>
-                                <div className="flex-1 h-2.5 bg-neutral-100 rounded-full overflow-hidden">
+                              <div key={c.candidate_id} className="flex items-center gap-3 flex-wrap">
+                                <span className="text-sm text-text-primary min-w-0 flex-none w-28 sm:w-40 truncate">{c.candidate_name}</span>
+                                <div className="flex-1 basis-24 min-w-[80px] h-2.5 bg-neutral-100 rounded-full overflow-hidden">
                                   <div
                                     className={`h-full rounded-full ${c.status === "winner" ? "bg-success-500" : "bg-primary-500"}`}
                                     style={{ width: `${Math.max(c.percentage, 1)}%` }}
                                   />
                                 </div>
-                                <span className="text-sm font-semibold text-text-primary w-10 text-right">{c.vote_count}</span>
-                                <span className="text-xs text-text-tertiary w-12 text-right">{Math.round(c.percentage)}%</span>
+                                <span className="text-sm font-semibold text-text-primary w-10 text-right flex-none">{c.vote_count}</span>
+                                <span className="text-xs text-text-tertiary w-12 text-right flex-none">{Math.round(c.percentage)}%</span>
                                 {c.status === "winner" && <Badge variant="success">Lead</Badge>}
                               </div>
                             ))}

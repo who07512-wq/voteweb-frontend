@@ -21,14 +21,14 @@ export default function NotFoundPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="text-center max-w-md bg-white rounded-[20px] border border-border p-10">
+      <div className="text-center max-w-md w-full bg-white rounded-[20px] border border-border p-6 sm:p-10">
         <p className="text-6xl font-bold text-primary-600 mb-2">404</p>
         <h1 className="text-2xl font-bold text-gray-900 mb-3">Page Not Found</h1>
         <p className="text-sm text-gray-600 mb-2">
           The page you are looking for does not exist or has been moved.
         </p>
         <p className="text-xs text-gray-500 mb-8">Error Code: 404</p>
-        <div className="flex items-center justify-center gap-3">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <Link
             href="/"
             className="inline-flex items-center justify-center px-5 py-2.5 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition"

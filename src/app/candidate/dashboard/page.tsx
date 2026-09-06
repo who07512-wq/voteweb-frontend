@@ -45,7 +45,7 @@ export default function CandidateDashboardPage() {
               Manage your candidate profile and election campaign information.
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <Badge variant="info" size="md">
               Student Council Election 2026
             </Badge>

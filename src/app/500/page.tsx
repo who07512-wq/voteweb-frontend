@@ -13,7 +13,7 @@ export default function ServerError() {
 
   return (
     <div className="min-h-screen bg-bg-tertiary flex items-center justify-center px-4">
-      <div className="bg-white dark:bg-[#252540] rounded-[20px] border border-border p-10 max-w-md w-full text-center">
+      <div className="bg-white dark:bg-[#252540] rounded-[20px] border border-border p-6 sm:p-10 max-w-md w-full text-center">
         <div className="w-16 h-16 bg-error-600/10 rounded-full flex items-center justify-center mx-auto mb-6">
           <span className="text-3xl">⚠️</span>
         </div>
@@ -25,7 +25,7 @@ export default function ServerError() {
             <span>Error logged at {new Date().toLocaleString()}</span>
           </div>
         </div>
-        <div className="flex items-center justify-center gap-3">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <button onClick={handleRetry} disabled={retrying}
             className="flex items-center gap-2 bg-primary-600 text-white px-6 py-3 rounded-[12px] text-sm font-semibold hover:bg-primary-500 transition-colors disabled:opacity-50">
             <RefreshCw size={16} className={retrying ? "animate-spin" : ""} />

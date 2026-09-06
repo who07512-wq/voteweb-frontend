@@ -159,18 +159,18 @@ export default function NotificationsPage() {
   return (
     <div className="min-h-screen bg-bg-primary">
       <div className="bg-white dark:bg-bg-secondary border-b border-border">
-        <div className="max-w-3xl mx-auto px-4 py-4 flex items-center gap-3">
+        <div className="max-w-3xl mx-auto px-4 py-4 flex items-center gap-3 flex-wrap">
           <Link href="/student/dashboard" className="p-2 hover:bg-primary-50 rounded-full transition-colors">
             <ArrowLeft size={20} className="text-text-secondary" />
           </Link>
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold text-text-primary">Notifications</h1>
             <p className="text-sm text-text-secondary">
               {loading ? "Loading..." : `${unreadCount} unread notification${unreadCount !== 1 ? "s" : ""}`}
             </p>
           </div>
           {unreadCount > 0 && (
-            <button onClick={markAllRead} className="text-sm text-primary-800 font-medium hover:text-primary-500 flex items-center gap-1">
+            <button onClick={markAllRead} className="text-sm text-primary-800 font-medium hover:text-primary-500 flex items-center gap-1 whitespace-nowrap">
               <CheckCheck size={16} /> Mark all read
             </button>
           )}

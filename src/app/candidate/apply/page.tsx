@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import {
   submitApplication,
+  getMyApplication,
 } from "@/lib/candidate-api";
 import { getRollNumber } from "@/lib/roll-number";
 
@@ -53,6 +54,7 @@ import {
   ArrowLeft,
   X,
   Loader2,
+  Lock,
 } from "lucide-react";
 
 interface FormData {
@@ -106,6 +108,7 @@ export default function CandidateApplyPage() {
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [lockedStatus, setLockedStatus] = useState<string | null>(null);
 
   // Pre-fill from the BACKEND account (the name entered at registration) and
   // the stored roll number. The Clerk profile is no longer the identity
@@ -130,6 +133,31 @@ export default function CandidateApplyPage() {
         }));
       } catch {
         // Not fatal — the user can type their details manually.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Lock the apply page once an application is no longer editable. The
+  // backend already rejects duplicate submissions (409) and blocks edits
+  // unless the application is approved/changes_requested, but the page must
+  // not present a blank editable form to a candidate whose application is
+  // already submitted, under review, or approved.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let app = null;
+      try {
+        app = await getMyApplication();
+      } catch {
+        app = null;
+      }
+      if (cancelled) return;
+      const status = app?.status;
+      if (status === "submitted" || status === "under_review" || status === "approved") {
+        setLockedStatus(status);
       }
     })();
     return () => {
@@ -302,6 +330,40 @@ export default function CandidateApplyPage() {
       setIsSubmitting(false);
     }
   };
+
+  if (lockedStatus) {
+    return (
+      <CandidateLayout candidateName="Candidate" candidateId="">
+        <div className="max-w-2xl mx-auto space-y-6">
+          <Card className="p-8 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-warning-50 flex items-center justify-center mx-auto mb-4">
+              <Lock className="w-8 h-8 text-warning" />
+            </div>
+            <h1 className="text-2xl font-bold text-text-primary mb-2">
+              Application Locked
+            </h1>
+            <Badge variant="warning" size="md" className="mb-4">
+              {lockedStatus === "approved" ? "Approved" : "Under Review"}
+            </Badge>
+            <p className="text-sm text-text-secondary mb-6 max-w-md mx-auto">
+              Your candidate application has already been submitted{lockedStatus === "approved" ? " and approved" : ""}.
+              The application is now locked and cannot be changed. If you need to
+              update your bio, manifesto, or photo, use your candidate campaign
+              tools instead.
+            </p>
+            <Button
+              variant="primary"
+              onClick={() => router.push("/candidate/status")}
+              className="gap-2"
+            >
+              View Application Status
+              <ArrowRight className="w-4 h-4" />
+            </Button>
+          </Card>
+        </div>
+      </CandidateLayout>
+    );
+  }
 
   if (showSuccess) {
     return (
