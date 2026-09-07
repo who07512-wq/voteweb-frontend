@@ -388,10 +388,15 @@ export function RoleLoginPage({
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setError(
-          data.error?.message ||
-            "Sign-in failed. Check your email and password."
-        );
+        if (res.status === 401) {
+          setError("Incorrect email or password. Check them and try again.");
+        } else if (res.status === 423) {
+          setError(data.error?.message || "This account is temporarily locked. Try again later.");
+        } else if (res.status >= 500 || !data.error?.message) {
+          setError("The server is having trouble right now. Please wait a moment and try again.");
+        } else {
+          setError(data.error?.message);
+        }
         setIsAdminLoggingIn(false);
         return;
       }
@@ -465,8 +470,12 @@ export function RoleLoginPage({
           setError("No account exists with this email. Create one from the Register page.");
         } else if (res.status === 401) {
           setError("Incorrect email or password. Try again or reset your password.");
+        } else if (res.status === 423) {
+          setError(data.error?.message || "This account is temporarily locked. Try again later.");
+        } else if (res.status >= 500 || !data.error?.message) {
+          setError("The server is having trouble right now. Please wait a moment and try again.");
         } else {
-          setError(data.error?.message || "Sign-in failed. Please try again.");
+          setError(data.error?.message);
         }
         setIsPasswordLoggingIn(false);
         return;
