@@ -72,10 +72,12 @@ Every API call is guarded by CSRF tokens and the httpOnly `cv_sid` session cooki
 - Setup / settings pages (`/candidate/settings`)
 
 ### 🛡️ Admins (`/admin/*`, all wrapped in `AdminLayout`)
-- Dashboard with stats (`/admin/dashboard`), election builder (`/admin/election`), schedule (`/admin/schedule`)
+- **Real-time dashboard** with stats (`/admin/dashboard`): auto-refreshes every 4s via `GET /api/v1/admin/live` (visible-aware polling, paused when the tab is hidden), with a pulsing **LIVE** badge, animated counters, a candidate leaderboard (`top 10` ranked with 🏆/🥈/🥉 badges and CSS bar charts), and a participation progress bar
+- Election builder (`/admin/election`), schedule (`/admin/schedule`)
 - Students (`/admin/students`), positions (`/admin/positions`), candidates (`/admin/candidates`)
 - Approve/reject candidate applications, authorize voters
-- Results (`/admin/results`), reports (`/admin/reports`), issues (`/admin/issues`)
+- Results (`/admin/results`): 5s live polling (silent — preserves expand state), per-candidate percentage bars, LAST badge, and last-updated timestamp
+- Reports (`/admin/reports`), issues (`/admin/issues`)
 - Announcements (`/admin/announcements`), access requests (`/admin/access-requests`), activity/audit log (`/admin/activity`), settings
 
 ### 👁️ CAD (election monitor)
@@ -216,6 +218,7 @@ Pass-through `clerkMiddleware` — intentionally does **not** gate routes (see a
 | Voting | `voting/*` components | `POST /api/v1/elections/…/vote`, `GET …/eligibility` |
 | Results | `student/results`, `admin/results`, `cad/results` | Results endpoints gated by `results_published_at` |
 | Admin panel | `AdminLayout` + `/admin/*` | All `/api/v1/admin/*` (requireAdmin) |
+| Real-time admin dashboard | `admin/dashboard` (4s poll), `admin/results` (5s poll) | `GET /api/v1/admin/live` → `{ stats, leaderboard, generatedAt }` |
 
 ---
 
