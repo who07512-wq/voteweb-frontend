@@ -11,7 +11,6 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { setBindingToken } from "@/lib/session-binding";
 import { setAuthCookie } from "@/lib/mock-auth";
-import { hasRollNumber } from "@/lib/roll-number";
 import type { UserRole } from "@/lib/auth-types";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
@@ -93,11 +92,6 @@ export function RoleLoginPage({
         : ""
   );
   const [error, setError] = useState("");
-
-  // Password login (primary method for registered accounts).
-  const [loginMethod, setLoginMethod] = useState<"password" | "code">("password");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [isPasswordLoggingIn, setIsPasswordLoggingIn] = useState(false);
 
   // Admin password fields
   const [adminEmail, setAdminEmail] = useState("");
@@ -436,90 +430,6 @@ export function RoleLoginPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoaded, isSignedIn, isAdminFlow]);
 
-  // ---- Password login (registered accounts) ----
-  const passwordLogin = async () => {
-    setError("");
-    if (!email || !email.includes("@") || !loginPassword) {
-      setError("Enter your email and password to sign in.");
-      return;
-    }
-    setIsPasswordLoggingIn(true);
-    try {
-      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
-      const csrfData = await csrfRes.json();
-      const csrfToken = csrfData.data?.csrfToken || "";
-
-      // No role hint: the backend uses the account's DB role and we route
-      // to the matching dashboard (same behavior as the main portal).
-      const res = await fetch(`${API_BASE}/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrfToken,
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          userIdentifier: email.trim().toLowerCase(),
-          password: loginPassword,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        if (data.error?.code === "ACCOUNT_NOT_FOUND") {
-          setError("No account exists with this email. Create one from the Register page.");
-        } else if (res.status === 401) {
-          setError("Incorrect email or password. Try again or reset your password.");
-        } else if (res.status === 423) {
-          setError(data.error?.message || "This account is temporarily locked. Try again later.");
-        } else if (res.status >= 500 || !data.error?.message) {
-          setError("The server is having trouble right now. Please wait a moment and try again.");
-        } else {
-          setError(data.error?.message);
-        }
-        setIsPasswordLoggingIn(false);
-        return;
-      }
-
-      if (data.data?.bindingToken) {
-        setBindingToken(data.data.bindingToken);
-      }
-      const user = data.data?.user;
-      if (user?.name) {
-        setAuthCookie("student", user.name, user.email || email);
-      }
-
-      // Route by the DATABASE role — server-side truth.
-      const dbRole = String(user?.role || "").toUpperCase();
-      const dashboards: Record<string, string> = {
-        STUDENT: "/student/dashboard",
-        CANDIDATE: "/candidate/dashboard",
-        ADMIN: "/admin/dashboard",
-        CAD: "/cad/dashboard",
-      };
-      sessionStorage.removeItem("campusvote_bridged");
-
-      // A student who signed up as a candidate (roll saved under either the
-      // candidate or student key) should be taken straight to the application
-      // form, matching the register and email-code flows — not the generic
-      // student dashboard.
-      const userEmail = String(user?.email || email).trim().toLowerCase();
-      let dest = dashboards[dbRole] || "/student/dashboard";
-      if (
-        dbRole === "STUDENT" &&
-        (hasRollNumber("candidate", userEmail) || hasRollNumber("student", userEmail))
-      ) {
-        dest = "/candidate/apply";
-      }
-      sessionStorage.setItem("campusvote_dest", dest);
-      window.location.href = dest;
-    } catch (err) {
-      console.error("Password login failed:", err);
-      setError("Unable to reach the server. Please check your connection and try again.");
-      setIsPasswordLoggingIn(false);
-    }
-  };
-
   const roleKey = isAdminFlow ? "administrator" : selectedRole;
 
   return (
@@ -538,9 +448,7 @@ export function RoleLoginPage({
               subtitle={
                 isAdminFlow
                   ? "Administrator sign in with your institute email and password"
-                  : loginMethod === "password"
-                    ? "Sign in with your email and password"
-                    : "Enter your email and we will send you a one-time code"
+                  : "Enter your email and we will send you a one-time code"
               }
             />
         </div>
@@ -616,71 +524,6 @@ export function RoleLoginPage({
             )}
 
             {stage === "email" ? (
-              loginMethod === "password" ? (
-                <>
-                  <div className="space-y-1.5">
-                    <label
-                      htmlFor="login-email"
-                      className="text-xs font-medium text-text-secondary"
-                    >
-                      Email address
-                    </label>
-                    <input
-                      id="login-email"
-                      type="email"
-                      autoComplete="email"
-                      placeholder="you@example.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="w-full min-w-0 px-4 py-2.5 text-sm bg-white dark:bg-[#252540] border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                    />
-                  </div>
-                  <Input
-                    id="login-password"
-                    label="Password"
-                    type="password"
-                    autoComplete="current-password"
-                    placeholder="Enter your password"
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") passwordLogin();
-                    }}
-                  />
-                  <Button
-                    onClick={passwordLogin}
-                    disabled={isPasswordLoggingIn}
-                    isLoading={isPasswordLoggingIn}
-                    className="w-full"
-                  >
-                    {!isPasswordLoggingIn && (
-                      <>
-                        <KeyRound className="w-4 h-4" />
-                        Sign in
-                      </>
-                    )}
-                  </Button>
-                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-text-secondary">
-                    <a
-                      href="/forgot-password"
-                      className="text-primary-600 hover:text-primary-700 font-medium"
-                    >
-                      Forgot password?
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLoginMethod("code");
-                        setError("");
-                        setNotice("");
-                      }}
-                      className="text-text-muted hover:text-text-secondary font-medium"
-                    >
-                      Sign in with a code instead
-                    </button>
-                  </div>
-                </>
-              ) : (
                 <>
                   <div className="space-y-1.5">
                     <label
@@ -712,25 +555,11 @@ export function RoleLoginPage({
                       </Button>
                     </div>
                   </div>
-                  <div className="text-center text-xs text-text-secondary">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLoginMethod("password");
-                        setError("");
-                        setNotice("");
-                      }}
-                      className="text-primary-600 hover:text-primary-700 font-medium"
-                    >
-                      Sign in with a password instead
-                    </button>
-                  </div>
                   {/* Clerk renders its invisible bot-protection CAPTCHA here
                       when creating brand-new accounts. */}
                   <div id="clerk-captcha" />
                 </>
-              )
-            ) : (
+              ) : (
               <>
                 <div className="p-3 bg-primary-50 border border-primary-100 rounded-lg text-sm text-primary-800 flex items-start gap-2">
                   <Mail className="w-4 h-4 mt-0.5 shrink-0" />
