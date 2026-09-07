@@ -183,9 +183,9 @@ export default function CandidateSettingsPage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm font-medium text-text-primary">Sign-in Method</p>
-                        <p className="text-sm text-text-secondary">One-time code sent by email</p>
+                        <p className="text-sm text-text-secondary">One-time code or password</p>
                       </div>
-                      <Badge variant="success">No password</Badge>
+                      <Badge variant="success">Password + OTP</Badge>
                     </div>
                   </div>
                   <div className="p-4 rounded-xl border border-border">

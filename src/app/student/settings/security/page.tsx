@@ -41,10 +41,10 @@ export default function SecurityPage() {
                 Sign-in Method
               </h2>
               <div className="p-3 rounded-xl bg-primary-50/50 border border-primary-100 text-sm text-primary-800">
-                <p className="font-medium">One-time code by email</p>
+                <p className="font-medium">One-time code or password</p>
                 <p className="text-xs text-text-secondary mt-0.5">
-                  Your account has no password. Each time you sign in, a fresh one-time code is
-                  sent to your registered email.
+                  You can sign in with the password you set at registration, or a fresh
+                  one-time code sent to your registered email.
                 </p>
               </div>
             </Card>

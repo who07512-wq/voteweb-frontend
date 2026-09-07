@@ -98,6 +98,10 @@ export function RoleLoginPage({
   const [adminPassword, setAdminPassword] = useState("");
   const [isAdminLoggingIn, setIsAdminLoggingIn] = useState(false);
 
+  // Student / candidate sign-in method (one-time code or password)
+  const [signInMethod, setSignInMethod] = useState<"code" | "password">("code");
+  const [password, setPassword] = useState("");
+
   useEffect(() => {
     // Surface role-mismatch rejections relayed by the callback page
     const flagged = sessionStorage.getItem("campusvote_role_mismatch");
@@ -254,6 +258,64 @@ export function RoleLoginPage({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingSend, authLoaded, isSignedIn]);
+
+  // ---- Student / candidate email + password sign-in ----
+  const passwordLogin = async () => {
+    setError("");
+    if (!email || !email.includes("@") || !password) {
+      setError("Enter both your email and password.");
+      return;
+    }
+    if (!signIn) {
+      setError("Sign-in is still loading. Please try again in a moment.");
+      return;
+    }
+    if (bounceExistingSession()) return;
+    setIsSending(true);
+    try {
+      const normalized = email.trim().toLowerCase();
+      const res = await signIn.create({ identifier: normalized, password });
+      if (res?.error) {
+        if (isNotFoundError(res.error)) {
+          setError(
+            "No account found with this email. Register first, or use the one-time code to sign in."
+          );
+        } else if (isAlreadySignedInError(res.error)) {
+          setError("You already appear to be signed in. Please refresh the page.");
+        } else {
+          setError(`We couldn't sign you in with that password${describe(res.error)}`);
+        }
+        setIsSending(false);
+        return;
+      }
+      if (signIn.status === "complete") {
+        const fin = await signIn.finalize();
+        if (fin?.error) {
+          setError(`Sign-in could not be completed${describe(fin.error)}`);
+          setIsSending(false);
+          return;
+        }
+        setRoleFlags();
+        goToCallback();
+        return;
+      }
+      setError("Sign-in is not complete. Please try again.");
+      setIsSending(false);
+    } catch (err) {
+      console.error("passwordLogin threw:", err);
+      setError("Unable to reach the server. Please check your connection and try again.");
+      setIsSending(false);
+    }
+  };
+
+  const switchMethod = (method: "code" | "password") => {
+    setSignInMethod(method);
+    setError("");
+    setNotice("");
+    try {
+      signIn?.reset?.().catch(() => {});
+    } catch { /* no active attempt to reset */ }
+  };
 
   const verifyEmailCode = async () => {
     setError("");
@@ -448,7 +510,7 @@ export function RoleLoginPage({
               subtitle={
                 isAdminFlow
                   ? "Administrator sign in with your institute email and password"
-                  : "Enter your email and we will send you a one-time code"
+                  : "Enter your email and sign in with a one-time code or your password"
               }
             />
         </div>
@@ -525,36 +587,100 @@ export function RoleLoginPage({
 
             {stage === "email" ? (
                 <>
-                  <div className="space-y-1.5">
-                    <label
-                      htmlFor="email-code-email"
-                      className="text-xs font-medium text-text-secondary"
+                  <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 dark:bg-[#1d1d38] rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => switchMethod("code")}
+                      className={`px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
+                        signInMethod === "code"
+                          ? "bg-white dark:bg-[#252540] shadow-sm text-text-primary"
+                          : "text-text-muted hover:text-text-secondary"
+                      }`}
                     >
-                      Email address
-                    </label>
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <input
-                        id="email-code-email"
+                      One-time code
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => switchMethod("password")}
+                      className={`px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
+                        signInMethod === "password"
+                          ? "bg-white dark:bg-[#252540] shadow-sm text-text-primary"
+                          : "text-text-muted hover:text-text-secondary"
+                      }`}
+                    >
+                      Password
+                    </button>
+                  </div>
+
+                  {signInMethod === "code" ? (
+                    <div className="space-y-1.5">
+                      <label
+                        htmlFor="email-code-email"
+                        className="text-xs font-medium text-text-secondary"
+                      >
+                        Email address
+                      </label>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <input
+                          id="email-code-email"
+                          type="email"
+                          autoComplete="email"
+                          placeholder="you@example.com"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") sendEmailCode();
+                          }}
+                          className="flex-1 min-w-0 px-4 py-2.5 text-sm bg-white dark:bg-[#252540] border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                        />
+                        <Button
+                          onClick={sendEmailCode}
+                          disabled={isSending}
+                          isLoading={isSending}
+                          className="w-full sm:w-auto shrink-0"
+                        >
+                          {!isSending && "Send code"}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <Input
+                        id="password-email"
+                        label="Email address"
                         type="email"
                         autoComplete="email"
                         placeholder="you@example.com"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
+                      />
+                      <Input
+                        id="password-input"
+                        label="Password"
+                        type="password"
+                        autoComplete="current-password"
+                        placeholder="Enter your password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") sendEmailCode();
+                          if (e.key === "Enter") passwordLogin();
                         }}
-                        className="flex-1 min-w-0 px-4 py-2.5 text-sm bg-white dark:bg-[#252540] border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                       />
                       <Button
-                        onClick={sendEmailCode}
+                        onClick={passwordLogin}
                         disabled={isSending}
                         isLoading={isSending}
-                        className="w-full sm:w-auto shrink-0"
+                        className="w-full"
                       >
-                        {!isSending && "Send code"}
+                        {!isSending && (
+                          <>
+                            <KeyRound className="w-4 h-4" />
+                            Sign in with password
+                          </>
+                        )}
                       </Button>
                     </div>
-                  </div>
+                  )}
                   {/* Clerk renders its invisible bot-protection CAPTCHA here
                       when creating brand-new accounts. */}
                   <div id="clerk-captcha" />

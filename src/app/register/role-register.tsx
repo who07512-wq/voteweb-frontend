@@ -10,6 +10,8 @@ import {
   UserPlus,
   Hash,
   Mic,
+  Phone,
+  Lock,
 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
@@ -29,7 +31,7 @@ const DASHBOARDS: Record<string, string> = {
   CAD: "/cad/dashboard",
 };
 
-type Stage = "email" | "code" | "details";
+type Stage = "form" | "code";
 export type RegisterPortal = "any" | "candidate" | "student";
 
 const PORTAL_TITLES: Record<RegisterPortal, string> = {
@@ -46,9 +48,12 @@ const PORTAL_TITLES: Record<RegisterPortal, string> = {
  * admin accounts are never self-registered (/login/admin only).
  *
  * A candidate registration creates a STUDENT-backed login for the candidate
- * application flow: email → one-time code (sent by Clerk) → name/roll number →
- * dashboard → apply as candidate. Candidacy itself is granted when an admin
- * approves the application, never at signup.
+ * application flow: full details (name, email, roll no, phone, password) →
+ * one-time code (sent by Clerk) → dashboard → apply as candidate. Candidacy
+ * itself is granted when an admin approves the application, never at signup.
+ * The password + name are supplied to the Clerk sign-up up-front so the
+ * sign-up can COMPLETE once the email code is verified (the Clerk instance
+ * requires first/last name and a password to finish a new sign-up).
  */
 export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
   const { signIn } = useSignIn();
@@ -63,12 +68,15 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
   // first; the effect below retries the send once Clerk reports signed-out.
   const [pendingSend, setPendingSend] = useState(false);
 
-  const [stage, setStage] = useState<Stage>("email");
-  const [flow, setFlow] = useState<"signin" | "signup" | null>(null);
-  const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
+  const [stage, setStage] = useState<Stage>("form");
+  const [flow, setFlow] = useState<"signup" | null>(null);
   const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
   const [rollNumber, setRollNumber] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [code, setCode] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -104,11 +112,25 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     return message.includes("already signed in") || message.includes("session already");
   };
 
-  // ---- Stage 1: send the one-time code ----
-  const sendCode = async () => {
+  const validateForm = (): string | null => {
+    if (fullName.trim().length < 2) return "Enter your full name.";
+    if (!email || !email.includes("@")) return "Enter a valid email address.";
+    if (!rollNumber.trim()) return "Enter your roll / enrollment number.";
+    const phoneDigits = phone.replace(/[\s()-]/g, "");
+    if (!/^\+?[0-9]{10,15}$/.test(phoneDigits))
+      return "Enter a valid phone number (10-15 digits).";
+    if (!password || password.length < 12)
+      return "Password must be at least 12 characters.";
+    if (password !== confirmPassword) return "Passwords do not match.";
+    return null;
+  };
+
+  // ---- Stage 1: validate details, then send the one-time code ----
+  const startRegistration = async () => {
     setError("");
-    if (!email || !email.includes("@")) {
-      setError("Enter a valid email address to continue.");
+    const invalid = validateForm();
+    if (invalid) {
+      setError(invalid);
       return;
     }
     if (!signIn || !signUp) {
@@ -127,59 +149,75 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     setIsSending(true);
     try {
       const normalized = email.trim().toLowerCase();
-      // Existing Clerk account → sign in path. Brand-new email → sign up.
-      const res = await signIn.emailCode.sendCode({ emailAddress: normalized });
-      if (!res?.error) {
-        setFlow("signin");
-        setStage("code");
+      const parts = fullName.trim().split(/\s+/);
+      const firstName = parts.slice(0, -1).join(" ") || parts[0];
+      const lastName = parts[parts.length - 1] || "";
+
+      // Probe: does this email already exist? signIn.create starts an attempt
+      // without sending any email.
+      try {
+        await signIn.reset();
+      } catch { /* no prior attempt to reset */ }
+      const probe = await signIn.create({ identifier: normalized });
+      if (!probe?.error) {
+        setError("An account with this email already exists. Sign in instead.");
         setIsSending(false);
         return;
       }
-      if (isNotFoundError(res.error)) {
-        const up = await signUp.create({ emailAddress: normalized });
-        if (up?.error) {
-          setError(`We couldn't start registration for that email${describe(up.error)}`);
-          setIsSending(false);
+      if (!isNotFoundError(probe.error)) {
+        // Session appeared mid-flow (e.g. restored late) — sign out & retry.
+        if (isAlreadySignedInError(probe.error)) {
+          setPendingSend(true);
+          clerk.signOut().catch(() => {});
           return;
         }
-        const sent = await signUp.verifications.sendEmailCode();
-        if (sent?.error) {
-          setError(`We couldn't send the code to that email${describe(sent.error)}`);
-          setIsSending(false);
-          return;
-        }
-        setFlow("signup");
-        setStage("code");
+        setError(`We couldn't start registration for that email${describe(probe.error)}`);
         setIsSending(false);
         return;
       }
-      // Session appeared mid-flow (e.g. restored late) — sign out & retry.
-      if (isAlreadySignedInError(res.error)) {
-        setPendingSend(true);
-        clerk.signOut().catch(() => {});
+
+      // Brand-new email → create the Clerk sign-up. First/last name + password
+      // are provided up-front so the sign-up reaches "complete" once the email
+      // code verifies (the instance requires these attributes).
+      const up = await signUp.create({
+        emailAddress: normalized,
+        firstName,
+        lastName,
+        password,
+      });
+      if (up?.error) {
+        setError(`We couldn't start registration for that email${describe(up.error)}`);
+        setIsSending(false);
         return;
       }
-      setError(`We couldn't send the code to that email${describe(res.error)}`);
+      const sent = await signUp.verifications.sendEmailCode();
+      if (sent?.error) {
+        setError(`We couldn't send the code to that email${describe(sent.error)}`);
+        setIsSending(false);
+        return;
+      }
+      setFlow("signup");
+      setStage("code");
       setIsSending(false);
     } catch (err) {
-      console.error("register sendCode:", err);
-      setError("We couldn't send the code. Please check your connection and try again.");
+      console.error("register startRegistration:", err);
+      setError("We couldn't start registration. Please check your connection and try again.");
       setIsSending(false);
     }
   };
 
-  // After clicking "Send code" while a stale Clerk session was active, retry
+  // After clicking "Register" while a stale Clerk session was active, retry
   // the send automatically once the sign-out completes.
   useEffect(() => {
     if (!pendingSend || !authLoaded) return;
     if (!isSignedIn) {
       setPendingSend(false);
-      sendCode();
+      startRegistration();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingSend, authLoaded, isSignedIn]);
 
-  // ---- Stage 2: verify the code → Clerk session becomes active ----
+  // ---- Stage 2: verify the code → sign-up completes → finish the account ----
   const verifyCode = async (): Promise<boolean> => {
     setError("");
     if (!code || code.trim().length < 4) {
@@ -204,25 +242,19 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
             setIsVerifying(false);
             return false;
           }
-        }
-      } else if (signIn) {
-        const res = await signIn.emailCode.verifyCode({ code: trimmed });
-        if (res?.error) {
-          setError(`The code was not accepted${describe(res.error)}`);
+        } else {
+          // Should not happen now that password + name ride the sign-up, but
+          // surface the real state instead of a confusing "expired" message.
+          setError("Your email is verified, but the account setup needs more details. Please start again.");
           setIsVerifying(false);
           return false;
         }
-        if (signIn.status === "complete") {
-          const fin = await signIn.finalize();
-          if (fin?.error) {
-            setError(`Verification could not be completed${describe(fin.error)}`);
-            setIsVerifying(false);
-            return false;
-          }
-        }
+      } else {
+        setError("Registration is still loading. Please try again.");
+        setIsVerifying(false);
+        return false;
       }
 
-      setStage("details");
       setIsVerifying(false);
       return true;
     } catch (err) {
@@ -233,13 +265,9 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     }
   };
 
-  // ---- Stage 3: name + roll → backend account → dashboard ----
+  // ---- Finish: create the backend account → dashboard ----
   const completeRegistration = async () => {
     setError("");
-    if (!fullName.trim() || fullName.trim().length < 2) {
-      setError("Enter your full name — it will be used on your application and profile.");
-      return;
-    }
     setIsSubmitting(true);
     try {
       // The Clerk session token proves the email was verified by code.
@@ -274,6 +302,8 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
           email: email.trim().toLowerCase(),
           rollNumber: rollNumber.trim(),
           fullName: fullName.trim(),
+          mobileNumber: phone.replace(/[\s()-]/g, ""),
+          password,
           role: "CANDIDATE",
         }),
       });
@@ -313,13 +343,19 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     }
   };
 
+  const handleVerify = async () => {
+    if (await verifyCode()) {
+      completeRegistration();
+    }
+  };
+
   return (
     <AuthLayout>
       <AuthCard>
         <div className="text-center mb-6">
           <AuthHeader
             title={PORTAL_TITLES[portal]}
-            subtitle="Register to apply as a candidate — verify with a one-time code"
+            subtitle="Register to apply as a candidate — verify your email with a one-time code"
           />
         </div>
 
@@ -342,7 +378,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
           </div>
         )}
 
-        {stage === "email" && (
+        {stage === "form" && (
           <div className="space-y-4">
             <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600 text-center flex items-center justify-center gap-2">
               <Mic className="w-4 h-4 shrink-0" />
@@ -351,33 +387,89 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
               </span>
             </div>
 
-            <div className="space-y-1.5">
-              <label htmlFor="register-email" className="text-xs font-medium text-text-secondary">
-                Email address
-              </label>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <input
-                  id="register-email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") sendCode();
-                  }}
-                  className="flex-1 min-w-0 px-4 py-2.5 text-sm bg-white dark:bg-[#252540] border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
-                <Button
-                  onClick={sendCode}
-                  disabled={isSending}
-                  isLoading={isSending}
-                  className="w-full sm:w-auto shrink-0"
-                >
-                  {!isSending && "Send code"}
-                </Button>
-              </div>
+            <Input
+              id="register-name"
+              label="Full name"
+              type="text"
+              autoComplete="name"
+              placeholder="e.g. Rahul Sharma"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") startRegistration();
+              }}
+            />
+            <Input
+              id="register-email"
+              label="Email address"
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <div className="relative">
+              <Input
+                id="register-roll"
+                label="Roll / enrollment number"
+                type="text"
+                autoComplete="off"
+                placeholder="e.g. 0221IT211045"
+                value={rollNumber}
+                onChange={(e) => setRollNumber(e.target.value)}
+              />
+              <Hash className="w-3.5 h-3.5 text-text-muted absolute right-3 top-9" />
             </div>
+            <div className="relative">
+              <Input
+                id="register-phone"
+                label="Phone number"
+                type="tel"
+                autoComplete="tel"
+                placeholder="e.g. +91 98765 43210"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+              <Phone className="w-3.5 h-3.5 text-text-muted absolute right-3 top-9" />
+            </div>
+            <div className="relative">
+              <Input
+                id="register-password"
+                label="Password"
+                type="password"
+                autoComplete="new-password"
+                placeholder="At least 12 characters"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <Lock className="w-3.5 h-3.5 text-text-muted absolute right-3 top-9" />
+            </div>
+            <Input
+              id="register-confirm-password"
+              label="Confirm password"
+              type="password"
+              autoComplete="new-password"
+              placeholder="Repeat your password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") startRegistration();
+              }}
+            />
+            <Button
+              onClick={startRegistration}
+              disabled={isSending}
+              isLoading={isSending}
+              className="w-full"
+            >
+              {!isSending && (
+                <>
+                  <UserPlus className="w-4 h-4" />
+                  Register
+                </>
+              )}
+            </Button>
+
             <p className="text-xs text-text-secondary text-center">
               Already have an account?{" "}
               <Link href="/login" className="text-primary-600 hover:text-primary-700 font-medium">
@@ -402,7 +494,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
             <div className="p-3 bg-primary-50 border border-primary-100 rounded-lg text-sm text-primary-800 flex items-start gap-2">
               <Mail className="w-4 h-4 mt-0.5 shrink-0" />
               <span>
-                We sent a one-time code to <strong>{email}</strong>. Enter it below to continue.
+                We sent a one-time code to <strong>{email}</strong>. Enter it below to verify your email.
               </span>
             </div>
             <Input
@@ -415,23 +507,27 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ""))}
               onKeyDown={(e) => {
-                if (e.key === "Enter") verifyCode();
+                if (e.key === "Enter") handleVerify();
               }}
             />
             <Button
-              onClick={verifyCode}
-              disabled={isVerifying}
-              isLoading={isVerifying}
+              onClick={handleVerify}
+              disabled={isVerifying || isSubmitting}
+              isLoading={isVerifying || isSubmitting}
               className="w-full"
             >
-              {!isVerifying && "Verify code"}
+              {!(isVerifying || isSubmitting) && (
+                <>
+                  <UserPlus className="w-4 h-4" />
+                  Verify & Create Account
+                </>
+              )}
             </Button>
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-text-secondary">
               <button
                 type="button"
                 onClick={() => {
                   if (flow === "signup" && signUp) signUp.verifications.sendEmailCode().catch(() => {});
-                  else if (signIn) signIn.emailCode.sendCode({}).catch(() => {});
                   setCode("");
                   setError("");
                   setNotice("A new code has been sent to your email.");
@@ -443,7 +539,9 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
               <button
                 type="button"
                 onClick={() => {
-                  setStage("email");
+                  signUp.reset?.().catch(() => {});
+                  signIn.reset?.().catch(() => {});
+                  setStage("form");
                   setCode("");
                   setFlow(null);
                   setError("");
@@ -457,54 +555,6 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
           </div>
         )}
 
-        {stage === "details" && (
-          <div className="space-y-4">
-            <div className="p-3 bg-green-50 border border-green-100 rounded-lg text-sm text-green-800 flex items-start gap-2">
-              <Mail className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>
-                <strong>{email}</strong> verified. Now enter your name to finish.
-              </span>
-            </div>
-            <Input
-              id="register-name"
-              label="Full name"
-              type="text"
-              autoComplete="name"
-              placeholder="e.g. Rahul Sharma"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") completeRegistration();
-              }}
-            />
-            <div className="relative">
-              <Input
-                id="register-roll"
-                label="Roll / enrollment number (optional)"
-                type="text"
-                autoComplete="off"
-                placeholder="e.g. 0221IT211045"
-                value={rollNumber}
-                onChange={(e) => setRollNumber(e.target.value)}
-              />
-              <Hash className="w-3.5 h-3.5 text-text-muted absolute right-3 top-9" />
-            </div>
-            <Button
-              onClick={completeRegistration}
-              disabled={isSubmitting}
-              isLoading={isSubmitting}
-              className="w-full"
-            >
-              {!isSubmitting && (
-                <>
-                  <UserPlus className="w-4 h-4" />
-                  Create account
-                </>
-              )}
-            </Button>
-          </div>
-        )}
-
         <div className="mt-6 pt-4 border-t border-border text-xs text-text-secondary text-center flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 leading-relaxed px-1">
           {isSubmitting || isVerifying ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
@@ -512,8 +562,8 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
             <HelpCircle className="w-3.5 h-3.5 shrink-0" />
           )}
           <span>
-            Your email is verified by a one-time code. You&apos;ll sign in with a fresh code
-            sent to this email each time.
+            Your email is verified with a one-time code. After registering, sign in with your
+            password or a fresh code sent to this email.
           </span>
         </div>
       </AuthCard>
