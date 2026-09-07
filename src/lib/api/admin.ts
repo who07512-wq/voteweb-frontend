@@ -26,6 +26,43 @@ export interface LiveSnapshot {
   generatedAt: string;
 }
 
+export interface MonitoringSummary {
+  status: "healthy" | "degraded";
+  generatedAt: string;
+  metricsEnabled: boolean;
+  uptimeSeconds: number;
+  nodeVersion: string;
+  process: {
+    cpuPercent: number | null;
+    memoryRssBytes: number;
+    heapUsedBytes: number;
+    heapTotalBytes: number;
+  };
+  http: {
+    requestsTotal: number;
+    requestsPerSecond: number;
+    active: number;
+    averageDurationMs: number;
+    samples: number;
+    errorCount: number;
+    errorRatePct: number;
+  };
+  database: {
+    connected: boolean;
+    total: number;
+    idle: number;
+    waiting: number;
+  };
+  business: {
+    activeElections: number;
+    registeredStudents: number;
+    votesCast: number;
+    candidateApplications: number;
+    loginAttempts: number;
+    failedLogins: number;
+  };
+}
+
 export interface AdminStudentRecord {
   id: number;
   student_id: string | null;
@@ -110,6 +147,9 @@ export const adminApi = {
 
   // Real-time dashboard snapshot with leaderboard (GET /admin/live)
   getLive: () => api.get<LiveSnapshot>("/admin/live"),
+
+  // System monitoring summary (GET /admin/monitoring — aggregate only)
+  getMonitoring: () => api.get<MonitoringSummary>("/admin/monitoring"),
 
   // Students (GET /admin/students)
   getStudents: () => api.get<{ students?: AdminStudentRecord[] } | AdminStudentRecord[]>("/admin/students"),

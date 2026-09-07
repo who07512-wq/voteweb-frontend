@@ -79,6 +79,7 @@ Every API call is guarded by CSRF tokens and the httpOnly `cv_sid` session cooki
 - Results (`/admin/results`): 5s live polling (silent — preserves expand state), per-candidate percentage bars, LAST badge, and last-updated timestamp
 - Reports (`/admin/reports`), issues (`/admin/issues`)
 - Announcements (`/admin/announcements`), access requests (`/admin/access-requests`), activity/audit log (`/admin/activity`), settings
+- **System monitoring** (`/admin/monitoring`): 5s visible-aware polling of `GET /api/v1/admin/monitoring` (aggregate summary) with a healthy/degraded badge, uptime/CPU/memory/heap tiles, HTTP requests + error rate, database pool and election activity — aggregate-only, no personal data
 
 ### 👁️ CAD (election monitor)
 - `/cad/dashboard`, `/cad/elections`, `/cad/results` — live monitoring (role `CAD` in the DB)
@@ -164,7 +165,7 @@ Pass-through `clerkMiddleware` — intentionally does **not** gate routes (see a
 | Password | `/forgot-password`, `/reset-password`, `/email-recovery`, `/access-request`, `/access-request/status` | Recovery + voter access |
 | Student | `/student/dashboard`, `/student/vote`, `/student/vote/review`, `/student/vote/success`, `/student/results`, `/student/candidates`, `/student/candidates/compare`, `/student/receipt`, `/student/profile`, `/student/settings`, `/student/settings/security`, `/student/guidelines`, `/student/help`, `/student/help/request/[requestId]`, `/student/help/report`, `/student/help/requests` | `StudentLayout` |
 | Candidate | `/candidate`, `/candidate/apply`, `/candidate/status`, `/candidate/dashboard`, `/candidate/campaign`, `/candidate/manifesto`, `/candidate/profile`, `/candidate/preview`, `/candidate/settings` | `candidate/layout.tsx` + `CandidateLayout` |
-| Admin | `/admin/dashboard`, `/admin/election`, `/admin/schedule`, `/admin/students`, `/admin/positions`, `/admin/candidates`, `/admin/results`, `/admin/reports`, `/admin/issues`, `/admin/announcements`, `/admin/access-requests`, `/admin/activity`, `/admin/settings` | `AdminLayout` |
+| Admin | `/admin/dashboard`, `/admin/election`, `/admin/schedule`, `/admin/students`, `/admin/positions`, `/admin/candidates`, `/admin/results`, `/admin/reports`, `/admin/issues`, `/admin/announcements`, `/admin/access-requests`, `/admin/activity`, `/admin/settings`, `/admin/monitoring` | `AdminLayout` |
 | CAD | `/cad/dashboard`, `/cad/elections`, `/cad/results` | `CadLayout` |
 | Other | `/notifications`, `/help`, `/verify/[receiptId]`, `/403`, `/404`, `/500`, `/access-denied`, `/unauthorized`, `/session-expired`, `/account-locked`, `/maintenance` | Status/utility pages |
 
@@ -219,6 +220,7 @@ Pass-through `clerkMiddleware` — intentionally does **not** gate routes (see a
 | Results | `student/results`, `admin/results`, `cad/results` | Results endpoints gated by `results_published_at` |
 | Admin panel | `AdminLayout` + `/admin/*` | All `/api/v1/admin/*` (requireAdmin) |
 | Real-time admin dashboard | `admin/dashboard` (4s poll), `admin/results` (5s poll) | `GET /api/v1/admin/live` → `{ stats, leaderboard, generatedAt }` |
+| System monitoring | `admin/monitoring` (5s poll) | `GET /api/v1/admin/monitoring` → aggregate `MonitoringSummary` |
 
 ---
 

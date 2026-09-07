@@ -20,6 +20,7 @@ import {
   Shield,
   UserPlus,
   Eye,
+  Gauge,
 } from "lucide-react";
 
 export interface AdminSidebarProps {
@@ -56,6 +57,7 @@ const MENU_SECTIONS = [
     label: "SYSTEM",
     items: [
       { label: "Issues", href: "/admin/issues", icon: AlertCircle },
+      { label: "Monitoring", href: "/admin/monitoring", icon: Gauge },
       { label: "Activity Log", href: "/admin/activity", icon: Clock },
       { label: "Settings", href: "/admin/settings", icon: Settings },
     ],
