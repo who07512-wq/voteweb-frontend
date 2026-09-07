@@ -42,8 +42,26 @@ const extraOrigins = (process.env.SERVER_ACTIONS_ALLOWED_ORIGINS ?? "")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+// Backend origin for the /api reverse proxy. The browser ONLY talks to the
+// frontend origin (same-site cookies); Next.js proxies /api/* to this origin.
+// Override per-deployment via BACKEND_API_ORIGIN.
+const backendApiOrigin =
+  process.env.BACKEND_API_ORIGIN || "https://voteweb-backend-api.onrender.com";
+
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1"],
+  // Proxy API traffic through this server so cookies (cv_sid, cv_csrf) are
+  // first-party. The frontend and backend live on separate *.onrender.com
+  // subdomains (different sites under the public-suffix list); without this,
+  // iOS Safari's ITP blocks the cross-site cookies and login always fails.
+  async rewrites() {
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${backendApiOrigin}/api/:path*`,
+      },
+    ];
+  },
   experimental: {
     serverActions: {
       // Keep the default strict check in production builds; only relax it for
