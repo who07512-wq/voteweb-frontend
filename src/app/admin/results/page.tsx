@@ -77,29 +77,35 @@ export default function AdminResultsPage() {
   const [publishing, setPublishing] = useState(false);
   const [publishNote, setPublishNote] = useState("");
   const [justPublished, setJustPublished] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const loadResults = async (id: number) => {
+  const loadResults = async (id: number, opts?: { silent?: boolean }) => {
     try {
       const res = await adminApi.getElectionResults(id);
       const full = res as ResultsFull;
       setResults(full);
       setError("");
-      // Expand the first position of each club and each CR constituency by default
-      const initial: Record<string, boolean> = {};
-      (full.clubs || []).forEach((club) =>
-        (club.positions || []).forEach((pos, i) => {
-          initial[`cl:${club.club_id}:${pos.position_id}`] = i === 0;
-        })
-      );
-      (full.constituencies || []).forEach((ct) =>
-        (ct.positions || []).forEach((pos, i) => {
-          initial[`ct:${ct.constituency_id}:${pos.position_id}`] = i === 0;
-        })
-      );
-      setExpandedPositions(initial);
+      setLastUpdated(new Date());
+      if (!opts?.silent) {
+        // Expand the first position of each club and each CR constituency by default
+        const initial: Record<string, boolean> = {};
+        (full.clubs || []).forEach((club) =>
+          (club.positions || []).forEach((pos, i) => {
+            initial[`cl:${club.club_id}:${pos.position_id}`] = i === 0;
+          })
+        );
+        (full.constituencies || []).forEach((ct) =>
+          (ct.positions || []).forEach((pos, i) => {
+            initial[`ct:${ct.constituency_id}:${pos.position_id}`] = i === 0;
+          })
+        );
+        setExpandedPositions(initial);
+      }
     } catch (e) {
-      setResults(null);
-      setError(e instanceof Error ? e.message : "Unable to load data. Please try again.");
+      if (!opts?.silent) {
+        setResults(null);
+        setError(e instanceof Error ? e.message : "Unable to load data. Please try again.");
+      }
     }
   };
 
@@ -119,6 +125,16 @@ export default function AdminResultsPage() {
       setLoading(false);
     })();
   }, []);
+
+  // Live polling: refresh the selected election's results every 5s while the
+  // tab is visible without reopening already-expanded positions.
+  useEffect(() => {
+    if (!selectedId) return;
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") loadResults(selectedId, { silent: true });
+    }, 5000);
+    return () => clearInterval(t);
+  }, [selectedId]);
 
   const handlePublish = async () => {
     if (!selectedId || publishConfirmText !== "PUBLISH") return;
@@ -158,10 +174,18 @@ export default function AdminResultsPage() {
           <div>
             <h1 className="text-2xl font-bold text-text-primary">Election Results</h1>
             <p className="text-sm text-text-secondary mt-1">
-              Real vote counts from the database.
+              Real vote counts from the database{lastUpdated ? ` — updated ${lastUpdated.toLocaleTimeString()}` : ""}.
             </p>
           </div>
-          {statusBadge}
+          <div className="flex items-center gap-3">
+            <Badge variant="success">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-success-500 animate-live-pulse" />
+                LIVE
+              </span>
+            </Badge>
+            {statusBadge}
+          </div>
         </div>
 
         {/* Election selector */}
@@ -339,27 +363,35 @@ export default function AdminResultsPage() {
                                             candidate.status === "winner" ? "bg-success-50/50" : ""
                                           }`}
                                         >
-                                          <td className="py-3 px-3 flex items-center gap-2">
-                                            {candidate.status === "winner" && (
-                                              <Trophy className="w-4 h-4 text-warning-500" />
-                                            )}
-                                            {candidate.status === "runner_up" && (
-                                              <Medal className="w-4 h-4 text-text-muted" />
-                                            )}
-                                            <span
-                                              className={`font-medium ${
-                                                candidate.status === "winner"
-                                                  ? "text-success-700"
-                                                  : "text-text-primary"
-                                              }`}
-                                            >
-                                              {candidate.candidate_name}
-                                            </span>
-                                            {candidate.status === "winner" && (
-                                              <Badge variant="success" size="sm">
-                                                Winner
-                                              </Badge>
-                                            )}
+                                          <td className="py-3 px-3 flex flex-col gap-1.5">
+                                            <div className="flex items-center gap-2">
+                                              {candidate.status === "winner" && (
+                                                <Trophy className="w-4 h-4 text-warning-500" />
+                                              )}
+                                              {candidate.status === "runner_up" && (
+                                                <Medal className="w-4 h-4 text-text-muted" />
+                                              )}
+                                              <span
+                                                className={`font-medium ${
+                                                  candidate.status === "winner"
+                                                    ? "text-success-700"
+                                                    : "text-text-primary"
+                                                }`}
+                                              >
+                                                {candidate.candidate_name}
+                                              </span>
+                                              {candidate.status === "winner" && (
+                                                <Badge variant="success" size="sm">
+                                                  Winner
+                                                </Badge>
+                                              )}
+                                            </div>
+                                            <div className="w-full bg-bg-tertiary rounded-full h-2 min-w-[8rem] sm:min-w-[12rem]">
+                                              <div
+                                                className="bg-primary-600 h-2 rounded-full transition-all duration-500"
+                                                style={{ width: `${Math.min(100, candidate.percentage ?? 0)}%` }}
+                                              />
+                                            </div>
                                           </td>
                                           <td className="py-3 px-3 text-right text-text-primary font-medium">
                                             {(candidate.vote_count ?? 0).toLocaleString()}

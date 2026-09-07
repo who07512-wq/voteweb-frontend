@@ -1,49 +1,88 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AdminLayout } from "@/components/admin-dashboard/AdminLayout";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { adminApi, type AdminStats, type AuditLogRecord } from "@/lib/api/admin";
+import { adminApi, type AdminStats, type AuditLogRecord, type LiveSnapshot } from "@/lib/api/admin";
 import {
   Users,
   BarChart3,
   Vote,
-  CheckCircle2,
   Clock,
   ArrowRight,
   Megaphone,
   AlertCircle,
   UserCheck,
   Shield,
-  Eye,
-  TrendingUp,
   Settings,
   Inbox,
+  Trophy,
+  Medal,
+  TrendingUp,
+  Activity,
 } from "lucide-react";
+
+const POLL_INTERVAL_MS = 4000;
+
+/** Re-mounts its children whenever `value` changes so the flash animation re-runs. */
+function FlashOnChange({ value, children }: { value: string | number; children: ReactNode }) {
+  return (
+    <span key={value} className="animate-flash-in inline-block rounded-md px-1 -mx-1 transition-none">
+      {children}
+    </span>
+  );
+}
 
 export default function AdminDashboardPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
+  const [leaderboard, setLeaderboard] = useState<LiveSnapshot["leaderboard"]>([]);
   const [activities, setActivities] = useState<AuditLogRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [liveConnected, setLiveConnected] = useState(false);
+  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const loadLive = async (silent = false) => {
+    try {
+      const snap = (await adminApi.getLive()) as unknown as LiveSnapshot;
+      setStats({ ...snap.stats, generatedAt: snap.generatedAt });
+      setLeaderboard(snap.leaderboard || []);
+      setLastUpdated(new Date());
+      setLiveConnected(true);
+      setError("");
+    } catch (e) {
+      setLiveConnected(false);
+      if (!silent) setError(e instanceof Error ? e.message : "Unable to load data. Please try again.");
+    }
+    setLoading(false);
+  };
 
   useEffect(() => {
     (async () => {
-      try {
-        const [s, logs] = await Promise.all([
-          adminApi.getStats(),
-          adminApi.getAuditLogs().catch(() => ({ logs: [] })),
-        ]);
-        setStats(s as AdminStats);
-        setActivities(((logs as { logs?: AuditLogRecord[] }).logs || []).slice(0, 5));
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Unable to load data. Please try again.");
-      }
-      setLoading(false);
+      const [, logs] = await Promise.all([
+        loadLive(),
+        adminApi.getAuditLogs().catch(() => ({ logs: [] })),
+      ]);
+      setActivities(((logs as { logs?: AuditLogRecord[] }).logs || []).slice(0, 5));
     })();
+    return () => {
+      if (pollTimer.current) clearInterval(pollTimer.current);
+    };
+  }, []);
+
+  // Live auto-refresh: keep polling while the tab is visible & focused.
+  useEffect(() => {
+    if (pollTimer.current) clearInterval(pollTimer.current);
+    pollTimer.current = setInterval(() => {
+      if (document.visibilityState === "visible") loadLive(true);
+    }, POLL_INTERVAL_MS);
+    return () => {
+      if (pollTimer.current) clearInterval(pollTimer.current);
+    };
   }, []);
 
   if (loading)
@@ -75,28 +114,32 @@ export default function AdminDashboardPage() {
   const statCards = [
     {
       label: "Eligible Students",
-      value: eligibleStudents.toLocaleString(),
+      value: eligibleStudents,
+      display: eligibleStudents.toLocaleString(),
       icon: Users,
       color: "text-primary-600",
       bg: "bg-primary-50",
     },
     {
       label: "Candidates",
-      value: stats.candidates.total.toLocaleString(),
+      value: stats.candidates.total,
+      display: stats.candidates.total.toLocaleString(),
       icon: UserCheck,
       color: "text-success-600",
       bg: "bg-success-50",
     },
     {
       label: "Elections",
-      value: stats.elections.total.toLocaleString(),
+      value: stats.elections.total,
+      display: stats.elections.total.toLocaleString(),
       icon: BarChart3,
       color: "text-primary-600",
       bg: "bg-primary-50",
     },
     {
       label: "Votes Cast",
-      value: ballotsSubmitted.toLocaleString(),
+      value: ballotsSubmitted,
+      display: ballotsSubmitted.toLocaleString(),
       icon: Vote,
       color: "text-success-600",
       bg: "bg-success-50",
@@ -154,18 +197,39 @@ export default function AdminDashboardPage() {
     },
   ];
 
+  const topElection =
+    leaderboard.length > 0 ? leaderboard[0].election_name : "—";
+
   return (
     <AdminLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-text-primary">Admin Dashboard</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold text-text-primary">Admin Dashboard</h1>
+              <Badge variant={liveConnected ? "success" : "neutral"}>
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      liveConnected ? "bg-success-500 animate-live-pulse" : "bg-text-muted"
+                    }`}
+                  />
+                  LIVE
+                </span>
+              </Badge>
+            </div>
             <p className="text-text-secondary mt-1">
-              Live database statistics for your elections.
+              Real-time database statistics — auto-refreshes every {POLL_INTERVAL_MS / 1000}s.
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
+            {lastUpdated && (
+              <span className="text-xs text-text-muted flex items-center gap-1.5">
+                <Activity className="w-3.5 h-3.5" />
+                Updated {lastUpdated.toLocaleTimeString()}
+              </span>
+            )}
             <Badge variant={stats.elections.open > 0 ? "success" : "neutral"}>
               {stats.elections.open > 0 ? `${stats.elections.open} Election(s) Open` : "No Open Elections"}
             </Badge>
@@ -187,13 +251,92 @@ export default function AdminDashboardPage() {
                   <stat.icon className={`h-6 w-6 ${stat.color}`} />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-text-primary">{stat.value}</p>
+                  <FlashOnChange value={stat.value}>
+                    <p className="text-2xl font-bold text-text-primary">{stat.display}</p>
+                  </FlashOnChange>
                   <p className="text-sm text-text-secondary">{stat.label}</p>
                 </div>
               </div>
             </Card>
           ))}
         </div>
+
+        {/* Live Leaderboard */}
+        <Card className="p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-warning-50">
+                <Trophy className="h-5 w-5 text-warning-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-text-primary">Live Leaderboard</h3>
+                <p className="text-xs text-text-muted">Top candidates in {topElection}</p>
+              </div>
+            </div>
+            <a href="/admin/results">
+              <Button variant="outline" size="sm" className="gap-1.5">
+                Full Results
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Button>
+            </a>
+          </div>
+
+          {leaderboard.length === 0 ? (
+            <div className="py-10 text-center">
+              <Trophy className="w-10 h-10 text-text-muted mx-auto mb-3" />
+              <p className="text-sm font-medium text-text-secondary">No votes recorded yet</p>
+              <p className="text-xs text-text-muted mt-1">
+                Vote counts will appear here in real time as students cast ballots.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {leaderboard.slice(0, 5).map((entry, index) => {
+                const max = leaderboard[0]?.votes || 1;
+                const pct = Math.round((entry.votes / max) * 100);
+                const rankIcon =
+                  index === 0 ? (
+                    <Trophy className="w-5 h-5 text-warning-500" />
+                  ) : index === 1 ? (
+                    <Medal className="w-5 h-5 text-text-secondary" />
+                  ) : index === 2 ? (
+                    <Medal className="w-5 h-5 text-orange-400" />
+                  ) : null;
+                return (
+                  <div key={entry.candidate_id} className="flex items-center gap-4">
+                    <div className="w-8 flex-shrink-0 text-center">
+                      {rankIcon || (
+                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary-100 text-primary-700 text-xs font-bold">
+                          {index + 1}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-sm font-medium text-text-primary truncate">
+                          {entry.candidate_name}
+                          <span className="text-xs text-text-muted font-normal ml-2">
+                            {entry.position_name}
+                            {entry.scope_name ? ` · ${entry.scope_name}` : ""}
+                          </span>
+                        </span>
+                        <FlashOnChange value={entry.votes}>
+                          <span className="text-sm font-bold text-text-primary">{entry.votes} votes</span>
+                        </FlashOnChange>
+                      </div>
+                      <div className="w-full bg-border rounded-full h-2.5">
+                        <div
+                          className="bg-primary-600 h-2.5 rounded-full transition-all duration-500"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
 
         {/* Participation & Queues Row */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -208,15 +351,21 @@ export default function AdminDashboardPage() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
               <div className="p-3 bg-bg-tertiary rounded-lg">
                 <p className="text-sm text-text-secondary">Eligible</p>
-                <p className="text-xl font-bold text-text-primary">{eligibleStudents.toLocaleString()}</p>
+                <FlashOnChange value={eligibleStudents}>
+                  <p className="text-xl font-bold text-text-primary">{eligibleStudents.toLocaleString()}</p>
+                </FlashOnChange>
               </div>
               <div className="p-3 bg-bg-tertiary rounded-lg">
                 <p className="text-sm text-text-secondary">Ballots Submitted</p>
-                <p className="text-xl font-bold text-text-primary">{ballotsSubmitted.toLocaleString()}</p>
+                <FlashOnChange value={ballotsSubmitted}>
+                  <p className="text-xl font-bold text-text-primary">{ballotsSubmitted.toLocaleString()}</p>
+                </FlashOnChange>
               </div>
               <div className="p-3 bg-bg-tertiary rounded-lg">
                 <p className="text-sm text-text-secondary">Unique Voters</p>
-                <p className="text-xl font-bold text-text-primary">{stats.votes.unique_voters.toLocaleString()}</p>
+                <FlashOnChange value={stats.votes.unique_voters}>
+                  <p className="text-xl font-bold text-text-primary">{stats.votes.unique_voters.toLocaleString()}</p>
+                </FlashOnChange>
               </div>
               <div className="p-3 bg-bg-tertiary rounded-lg">
                 <p className="text-sm text-text-secondary">Remaining</p>
@@ -230,13 +379,13 @@ export default function AdminDashboardPage() {
               </div>
               <div className="w-full bg-border rounded-full h-3">
                 <div
-                  className="bg-primary-600 h-3 rounded-full transition-all"
+                  className="bg-primary-600 h-3 rounded-full transition-all duration-700"
                   style={{ width: `${Math.min(100, Number(participationRate))}%` }}
                 />
               </div>
             </div>
             <p className="text-xs text-text-muted mt-3">
-              Generated {new Date(stats.generatedAt).toLocaleString()} — live from PostgreSQL.
+              Generated {lastUpdated ? lastUpdated.toLocaleString() : "…"} — live from PostgreSQL.
             </p>
           </Card>
 
@@ -334,7 +483,7 @@ export default function AdminDashboardPage() {
                   className="flex items-center gap-4 p-3 rounded-lg hover:bg-bg-tertiary transition-colors"
                 >
                   <div className="flex-shrink-0">
-                    <CheckCircle2 className="h-4 w-4 text-success-500" />
+                    <Trophy className="h-4 w-4 text-success-500" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-text-primary">

@@ -10,6 +10,22 @@ export interface AdminStats {
   generatedAt: string;
 }
 
+export interface LiveLeaderboardEntry {
+  candidate_id: number;
+  candidate_name: string;
+  position_name: string;
+  election_id: number;
+  election_name: string;
+  scope_name: string | null;
+  votes: number;
+}
+
+export interface LiveSnapshot {
+  stats: Omit<AdminStats, "generatedAt">;
+  leaderboard: LiveLeaderboardEntry[];
+  generatedAt: string;
+}
+
 export interface AdminStudentRecord {
   id: number;
   student_id: string | null;
@@ -91,6 +107,9 @@ export interface AuditLogRecord {
 export const adminApi = {
   // Real-time statistics (GET /admin/stats)
   getStats: () => api.get<AdminStats>("/admin/stats"),
+
+  // Real-time dashboard snapshot with leaderboard (GET /admin/live)
+  getLive: () => api.get<LiveSnapshot>("/admin/live"),
 
   // Students (GET /admin/students)
   getStudents: () => api.get<{ students?: AdminStudentRecord[] } | AdminStudentRecord[]>("/admin/students"),
