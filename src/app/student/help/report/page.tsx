@@ -230,7 +230,7 @@ export default function ReportIssuePage() {
               <div className="flex items-start gap-2">
                 <Shield className="w-4 h-4 text-warning shrink-0 mt-0.5" />
                 <p className="text-xs text-warning font-medium">
-                  Do not include your password, authentication code, or candidate selections in your support request.
+                  Do not include your authentication code or candidate selections in your support request.
                 </p>
               </div>
             </Card>

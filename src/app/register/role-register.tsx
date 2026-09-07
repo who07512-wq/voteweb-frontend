@@ -8,7 +8,6 @@ import {
   Loader2,
   Mail,
   UserPlus,
-  KeyRound,
   Hash,
   Mic,
 } from "lucide-react";
@@ -47,7 +46,7 @@ const PORTAL_TITLES: Record<RegisterPortal, string> = {
  * admin accounts are never self-registered (/login/admin only).
  *
  * A candidate registration creates a STUDENT-backed login for the candidate
- * application flow: email → one-time code (sent by Clerk) → password →
+ * application flow: email → one-time code (sent by Clerk) → name/roll number →
  * dashboard → apply as candidate. Candidacy itself is granted when an admin
  * approves the application, never at signup.
  */
@@ -68,8 +67,6 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
   const [flow, setFlow] = useState<"signin" | "signup" | null>(null);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [rollNumber, setRollNumber] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -236,17 +233,9 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     }
   };
 
-  // ---- Stage 3: set password → backend account → dashboard ----
+  // ---- Stage 3: name + roll → backend account → dashboard ----
   const completeRegistration = async () => {
     setError("");
-    if (password.length < 12) {
-      setError("Password must be at least 12 characters long.");
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
-      return;
-    }
     if (!fullName.trim() || fullName.trim().length < 2) {
       setError("Enter your full name — it will be used on your application and profile.");
       return;
@@ -283,8 +272,6 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
         credentials: "include",
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
-          password,
-          confirmPassword,
           rollNumber: rollNumber.trim(),
           fullName: fullName.trim(),
           role: "CANDIDATE",
@@ -332,7 +319,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
         <div className="text-center mb-6">
           <AuthHeader
             title={PORTAL_TITLES[portal]}
-            subtitle="Register to apply as a candidate — email, one-time code and a password"
+            subtitle="Register to apply as a candidate — verify with a one-time code"
           />
         </div>
 
@@ -343,8 +330,8 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
               <Link href="/login" className="font-medium underline">
                 Sign in instead
               </Link>
-              <Link href="/forgot-password" className="font-medium underline">
-                Forgot password?
+              <Link href="/email-recovery" className="font-medium underline">
+                Can't access your email?
               </Link>
             </div>
           </div>
@@ -475,7 +462,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
             <div className="p-3 bg-green-50 border border-green-100 rounded-lg text-sm text-green-800 flex items-start gap-2">
               <Mail className="w-4 h-4 mt-0.5 shrink-0" />
               <span>
-                <strong>{email}</strong> verified. Now enter your name and choose a password.
+                <strong>{email}</strong> verified. Now enter your name to finish.
               </span>
             </div>
             <Input
@@ -486,6 +473,9 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
               placeholder="e.g. Rahul Sharma"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") completeRegistration();
+              }}
             />
             <div className="relative">
               <Input
@@ -499,27 +489,6 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
               />
               <Hash className="w-3.5 h-3.5 text-text-muted absolute right-3 top-9" />
             </div>
-            <Input
-              id="register-password"
-              label="Password (min 12 characters)"
-              type="password"
-              autoComplete="new-password"
-              placeholder="Choose a strong password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <Input
-              id="register-confirm"
-              label="Confirm password"
-              type="password"
-              autoComplete="new-password"
-              placeholder="Re-enter your password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") completeRegistration();
-              }}
-            />
             <Button
               onClick={completeRegistration}
               disabled={isSubmitting}
@@ -543,14 +512,9 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
             <HelpCircle className="w-3.5 h-3.5 shrink-0" />
           )}
           <span>
-            Your email is verified by a one-time code. You&apos;ll sign in with your email and
-            password afterwards — and can reset it anytime with{" "}
-            <Link href="/forgot-password" className="underline">
-              forgot password
-            </Link>
-            .
+            Your email is verified by a one-time code. You&apos;ll sign in with a fresh code
+            sent to this email each time.
           </span>
-          <KeyRound className="w-3 h-3 opacity-50 shrink-0" />
         </div>
       </AuthCard>
     </AuthLayout>

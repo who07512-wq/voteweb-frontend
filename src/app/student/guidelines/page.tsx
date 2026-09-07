@@ -397,7 +397,7 @@ export default function GuidelinesPage() {
                       <div className="p-3 rounded-xl bg-white/60">
                         <h4 className="text-xs font-semibold text-primary-700 mb-1">Do not share</h4>
                         <ul className="text-xs text-primary-600/80 space-y-1">
-                          <li>Your password</li>
+                          <li>Your one-time sign-in code</li>
                           <li>Your student account</li>
                           <li>Receipt information unnecessarily</li>
                         </ul>

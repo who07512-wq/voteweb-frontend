@@ -154,7 +154,7 @@ export default function SettingsPage() {
                       <h2 className="text-lg font-bold text-text-primary mb-4">Security Summary</h2>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {[
-                          { label: "Password", value: "Protected", status: "success" },
+                          { label: "Sign-in Method", value: "OTP by email", status: "success" },
                           { label: "Two-Factor Auth", value: "Not Enabled", status: "warning" },
                           { label: "Account Status", value: "Active", status: "success" },
                           { label: "Election Eligibility", value: "Eligible", status: "success" },
@@ -174,7 +174,7 @@ export default function SettingsPage() {
                             <Shield className="w-5 h-5 text-primary-600" />
                             <div>
                               <p className="text-sm font-medium text-text-primary">Security Settings</p>
-                              <p className="text-xs text-text-secondary">Manage password, 2FA, and sessions</p>
+                              <p className="text-xs text-text-secondary">Manage sign-in method, 2FA, and sessions</p>
                             </div>
                           </div>
                           <ChevronRight className="w-4 h-4 text-text-secondary" />

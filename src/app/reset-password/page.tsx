@@ -7,8 +7,9 @@ import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
 
 /**
- * Password reset is not applicable: CampusVote signs in exclusively with
- * Google (Clerk). This page explains that instead of offering a dead form.
+ * Password reset is not applicable: student and candidate accounts sign in
+ * with a one-time code sent by email (no password). This page explains that
+ * instead of offering a dead form.
  */
 export default function ResetPasswordPage() {
   return (
@@ -18,8 +19,8 @@ export default function ResetPasswordPage() {
           <ShieldCheck className="w-10 h-10 text-primary-600 mx-auto mb-3" />
           <h1 className="text-xl font-bold text-gray-900 mb-2">No password needed</h1>
           <p className="text-sm text-gray-600 mb-6 max-w-sm mx-auto">
-            CampusVote uses <strong>Google sign-in</strong> — there is no password to set or
-            reset. Your account is secured by your Google account.
+            Student and candidate accounts sign in with a one-time code sent to their email —
+            there is no password to set or reset.
           </p>
           <Link
             href="/login"
