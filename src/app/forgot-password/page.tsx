@@ -9,8 +9,9 @@ import { AuthHeader } from "@/components/auth/AuthHeader";
 import { Button } from "@/components/ui/Button";
 
 /**
- * Forgot password. Student and candidate accounts don't use passwords — they
- * sign in with a one-time code sent to their email. If the email itself is
+ * Forgot password. Student and candidate accounts can sign in with their
+ * password or a one-time code sent to their email — anyone can get in with a
+ * fresh code, so there is no password to reset. If the email itself is
  * unreachable, the admin-approved recovery flow handles email changes.
  */
 export default function ForgotPasswordPage() {
@@ -19,8 +20,8 @@ export default function ForgotPasswordPage() {
       <AuthCard>
         <div className="text-center mb-6">
           <AuthHeader
-            title="No password needed"
-            subtitle="Student and candidate accounts don't use passwords."
+            title="Forgot your password?"
+            subtitle="No worries — sign in with a one-time code instead."
           />
         </div>
 
@@ -28,8 +29,9 @@ export default function ForgotPasswordPage() {
           <div className="p-4 bg-primary-50 border border-primary-100 rounded-xl text-sm text-primary-800 flex items-start gap-3">
             <MailQuestion className="w-5 h-5 mt-0.5 shrink-0" />
             <p>
-              You sign in by entering your email and the <strong>one-time code</strong> we send
-              to it. There is no password to forget or reset.
+              Enter your email on the sign-in page, choose{" "}
+              <strong>One-time code</strong>, and use the code we send to it. No need to
+              remember your password.
             </p>
           </div>
           <p className="text-sm text-text-secondary leading-relaxed">
