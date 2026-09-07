@@ -242,6 +242,20 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
             setIsVerifying(false);
             return false;
           }
+          // signUp.finalize() creates the session but does NOT automatically
+          // make it active (sign-in finalize does). Without this, getToken()
+          // below returns null → the confusing "session expired" error.
+          // Activate the freshly created session explicitly, like the working
+          // sign-in flow does on its own.
+          const createdSessionId = (fin as { createdSessionId?: string } | null)?.createdSessionId || signUp.createdSessionId;
+          if (createdSessionId) {
+            try {
+              await clerk.setActive({ session: createdSessionId });
+              await new Promise((r) => setTimeout(r, 250));
+            } catch (e) {
+              console.error("register setActive:", e);
+            }
+          }
         } else {
           // Should not happen now that password + name ride the sign-up, but
           // surface the real state instead of a confusing "expired" message.
