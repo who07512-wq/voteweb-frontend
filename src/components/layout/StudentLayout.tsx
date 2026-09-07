@@ -19,8 +19,8 @@ export const StudentLayout: React.FC<StudentLayoutProps> = ({
   const [name, setName] = useState(studentName || "Student");
 
   useEffect(() => {
-    studentApi.getProfile().then((profile: any) => {
-      if (profile?.data?.name) setName(profile.data.name);
+    studentApi.getProfile().then((profile) => {
+      if (profile?.name) setName(profile.name);
     }).catch(() => {});
   }, []);
 

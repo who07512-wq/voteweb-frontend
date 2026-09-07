@@ -3,13 +3,16 @@ import { api } from "./client";
 export interface StudentProfile {
   id: string;
   name: string;
-  email: string;
-  enrollmentNumber: string;
-  department: string;
-  year: string;
-  section: string;
-  phone: string;
+  email: string | null;
+  enrollmentNumber: string | null;
+  department: string | null;
+  year: string | null;
+  section: string | null;
+  phone: string | null;
   avatar: string | null;
+  role?: string | null;
+  isActive?: boolean;
+  votingEligible?: boolean;
 }
 
 export interface NotificationSettings {

@@ -7,7 +7,7 @@ import { useSignOut } from "@/hooks/useSignOut";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { MOCK_NOTIFICATION_SETTINGS, MOCK_STUDENT_PROFILE } from "@/lib/student-profile-data";
+import { MOCK_NOTIFICATION_SETTINGS } from "@/lib/student-profile-data";
 import {
   Bell,
   Globe,
