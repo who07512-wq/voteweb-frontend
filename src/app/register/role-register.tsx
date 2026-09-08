@@ -242,16 +242,23 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
             setIsVerifying(false);
             return false;
           }
+          console.log("[register] sign-up status:", signUp.status);
           // signUp.finalize() creates the session but does NOT automatically
           // make it active (sign-in finalize does). Without this, getToken()
           // below returns null → the confusing "session expired" error.
-          // Activate the freshly created session explicitly, like the working
-          // sign-in flow does on its own.
-          const createdSessionId = (fin as { createdSessionId?: string } | null)?.createdSessionId || signUp.createdSessionId;
+          // Pull the created session id from every place ClerkJS may expose
+          // it, activate it explicitly, and force a full client re-sync.
+          const createdSessionId =
+            (fin as { createdSessionId?: string } | null)?.createdSessionId ||
+            signUp.createdSessionId ||
+            (fin as { session?: { id?: string } } | null)?.session?.id;
+          console.log("[register] createdSessionId:", Boolean(createdSessionId));
           if (createdSessionId) {
             try {
               await clerk.setActive({ session: createdSessionId });
-              await new Promise((r) => setTimeout(r, 250));
+              // Give Clerk a moment to propagate the new session to the
+              // client before getToken() runs (no public "load()" in ClerkJS 6).
+              await new Promise((r) => setTimeout(r, 400));
             } catch (e) {
               console.error("register setActive:", e);
             }
@@ -285,18 +292,38 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     setIsSubmitting(true);
     try {
       // The Clerk session token proves the email was verified by code.
-      // A fresh email-code signup may not have a cached token yet — skip the
-      // cache and (if needed) give Clerk a moment to persist the session
+      // A fresh email-code signup may not have an active session yet — the
+      // session is activated in verifyCode; retry getToken for a few seconds
       // before giving up, so a just-completed verification isn't reported as
       // "expired".
-      let token = await getToken({ skipCache: true });
-      if (!token) {
-        await new Promise((r) => setTimeout(r, 500));
-        token = await getToken({ skipCache: true });
+      let token: string | null = null;
+      let attempt = 0;
+      while (attempt < 5 && !token) {
+        attempt += 1;
+        try {
+          token = await getToken({ skipCache: true });
+        } catch {
+          token = null;
+        }
+        console.log("[register] token attempt:", attempt, Boolean(token));
+        if (!token && attempt < 5) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
       }
       if (!token) {
-        setError("Your verification session expired. Please start again.");
+        // Email verification and the Clerk account creation DID succeed — the
+        // only failure is grabbing a JWT for the brand-new session. Hand the
+        // user to sign-in instead of a fake "verification session expired"
+        // error. The backend CampusVote account is NOT claimed here because
+        // /auth/register/clerk was never called.
         setIsSubmitting(false);
+        setError("");
+        setNotice(
+          "Email verified successfully. Your account has been created. Please sign in to continue."
+        );
+        setTimeout(() => {
+          window.location.href = "/login";
+        }, 1500);
         return;
       }
 
