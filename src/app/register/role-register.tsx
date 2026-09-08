@@ -29,7 +29,7 @@ const DASHBOARDS: Record<string, string> = {
   CAD: "/cad/dashboard",
 };
 
-type Stage = "form" | "code";
+type Stage = "email" | "code" | "info";
 export type RegisterPortal = "any" | "candidate" | "student";
 
 const PORTAL_TITLES: Record<RegisterPortal, string> = {
@@ -44,7 +44,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
 
   const [selectedRole] = useState<"candidate" | "student">("candidate");
 
-  const [stage, setStage] = useState<Stage>("form");
+  const [stage, setStage] = useState<Stage>("email");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [rollNumber, setRollNumber] = useState("");
@@ -52,18 +52,9 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
   const [code, setCode] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-
-  const validateForm = (): string | null => {
-    if (fullName.trim().length < 2) return "Enter your full name.";
-    if (!email || !email.includes("@")) return "Enter a valid email address.";
-    if (!rollNumber.trim()) return "Enter your roll / enrollment number.";
-    const phoneDigits = phone.replace(/[\s()-]/g, "");
-    if (phoneDigits && !/^\+?[0-9]{10,15}$/.test(phoneDigits))
-      return "Enter a valid phone number (10-15 digits).";
-    return null;
-  };
 
   const bridgeToBackend = async (role: string) => {
     try {
@@ -105,11 +96,10 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     }
   };
 
-  const startRegistration = async () => {
+  const sendCode = async () => {
     setError("");
-    const invalid = validateForm();
-    if (invalid) {
-      setError(invalid);
+    if (!email || !email.includes("@")) {
+      setError("Enter a valid email address.");
       return;
     }
     if (!signUp) return;
@@ -119,8 +109,6 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
 
       const { error: createError } = await signUp.create({
         emailAddress: normalized,
-        firstName: fullName.trim().split(" ")[0] || "",
-        lastName: fullName.trim().split(" ").slice(1).join(" ") || "",
       });
       if (createError) {
         setError(createError.longMessage || createError.message || "Could not start registration. Please try again.");
@@ -138,8 +126,8 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       setStage("code");
       setIsSending(false);
     } catch (err) {
-      console.error("startRegistration threw:", err);
-      setError("We couldn't start registration. Please check your connection and try again.");
+      console.error("sendCode threw:", err);
+      setError("Something went wrong. Please try again.");
       setIsSending(false);
     }
   };
@@ -167,21 +155,48 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       }
 
       if (signUp.status === "complete") {
-        const backendRole = selectedRole.toUpperCase();
-        await bridgeToBackend(backendRole);
-
-        const dest =
-          backendRole === "STUDENT" && rollNumber.trim() ? "/candidate/apply" : DASHBOARDS[backendRole] || "/student/dashboard";
-
-        window.location.href = dest;
+        setStage("info");
+        setIsVerifying(false);
       } else {
         setError("Verification is not complete. Please try again.");
         setIsVerifying(false);
       }
     } catch (err) {
       console.error("verifyCode threw:", err);
-      setError("Something went wrong verifying the code. Please try again.");
+      setError("Something went wrong. Please try again.");
       setIsVerifying(false);
+    }
+  };
+
+  const submitInfo = async () => {
+    setError("");
+    if (fullName.trim().length < 2) {
+      setError("Enter your full name.");
+      return;
+    }
+    if (!rollNumber.trim()) {
+      setError("Enter your roll / enrollment number.");
+      return;
+    }
+    const phoneDigits = phone.replace(/[\s()-]/g, "");
+    if (phoneDigits && !/^\+?[0-9]{10,15}$/.test(phoneDigits)) {
+      setError("Enter a valid phone number (10-15 digits).");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const backendRole = selectedRole.toUpperCase();
+      await bridgeToBackend(backendRole);
+
+      const dest =
+        backendRole === "STUDENT" && rollNumber.trim() ? "/candidate/apply" : DASHBOARDS[backendRole] || "/student/dashboard";
+
+      window.location.href = dest;
+    } catch (err) {
+      console.error("submitInfo threw:", err);
+      setError("Something went wrong. Please try again.");
+      setIsSubmitting(false);
     }
   };
 
@@ -202,7 +217,13 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
         <div className="text-center mb-6">
           <AuthHeader
             title={PORTAL_TITLES[portal]}
-            subtitle="Register to apply as a candidate — verify your email with a one-time code"
+            subtitle={
+              stage === "email"
+                ? "Enter your email to get started"
+                : stage === "code"
+                  ? "Verify your email with the code we sent"
+                  : "Complete your profile to finish registration"
+            }
           />
         </div>
 
@@ -213,9 +234,6 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
               <Link href="/login" className="font-medium underline">
                 Sign in instead
               </Link>
-              <Link href="/email-recovery" className="font-medium underline">
-                Can&apos;t access your email?
-              </Link>
             </div>
           </div>
         )}
@@ -225,12 +243,113 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
           </div>
         )}
 
-        {stage === "form" && (
+        {/* Stage 1: Email */}
+        {stage === "email" && (
           <div className="space-y-4">
             <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600 text-center flex items-center justify-center gap-2">
               <Mic className="w-4 h-4 shrink-0" />
               <span>
                 Registering as <strong>Candidate</strong>
+              </span>
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="register-email" className="text-xs font-medium text-text-secondary">
+                Email address
+              </label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  id="register-email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") sendCode();
+                  }}
+                  className="flex-1 min-w-0 px-4 py-2.5 text-sm bg-white dark:bg-[#252540] border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                />
+                <Button
+                  onClick={sendCode}
+                  disabled={isSending}
+                  isLoading={isSending}
+                  className="w-full sm:w-auto shrink-0"
+                >
+                  {!isSending && "Send code"}
+                </Button>
+              </div>
+            </div>
+
+            <p className="text-xs text-text-secondary text-center">
+              Already have an account?{" "}
+              <Link href="/login" className="text-primary-600 hover:text-primary-700 font-medium">
+                Sign in
+              </Link>
+            </p>
+          </div>
+        )}
+
+        {/* Stage 2: OTP Code */}
+        {stage === "code" && (
+          <div className="space-y-4">
+            <div className="p-3 bg-primary-50 border border-primary-100 rounded-lg text-sm text-primary-800 flex items-start gap-2">
+              <Mail className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>
+                We sent a one-time code to <strong>{email}</strong>. Enter it below.
+              </span>
+            </div>
+            <Input
+              id="register-code"
+              label="One-time code"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="123456"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ""))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") verifyCode();
+              }}
+            />
+            <Button
+              onClick={verifyCode}
+              disabled={isVerifying}
+              isLoading={isVerifying}
+              className="w-full"
+            >
+              {!isVerifying && "Verify code"}
+            </Button>
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-text-secondary">
+              <button
+                type="button"
+                onClick={resendCode}
+                className="text-primary-600 hover:text-primary-700 font-medium"
+              >
+                Resend code
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStage("email");
+                  setCode("");
+                  setError("");
+                }}
+                className="text-text-muted hover:text-text-secondary font-medium"
+              >
+                Use a different email
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Stage 3: Info Form (after email verified) */}
+        {stage === "info" && (
+          <div className="space-y-4">
+            <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800 flex items-start gap-2">
+              <Mail className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>
+                <strong>{email}</strong> verified. Now complete your profile.
               </span>
             </div>
 
@@ -243,17 +362,8 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") startRegistration();
+                if (e.key === "Enter") submitInfo();
               }}
-            />
-            <Input
-              id="register-email"
-              label="Email address"
-              type="email"
-              autoComplete="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
             />
             <div className="relative">
               <Input
@@ -280,90 +390,18 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
               <Phone className="w-3.5 h-3.5 text-text-muted absolute right-3 top-9" />
             </div>
             <Button
-              onClick={startRegistration}
-              disabled={isSending}
-              isLoading={isSending}
+              onClick={submitInfo}
+              disabled={isSubmitting}
+              isLoading={isSubmitting}
               className="w-full"
             >
-              {!isSending && (
+              {!isSubmitting && (
                 <>
                   <UserPlus className="w-4 h-4" />
-                  Register
+                  Complete Registration
                 </>
               )}
             </Button>
-
-            <p className="text-xs text-text-secondary text-center">
-              Already have an account?{" "}
-              <Link href="/login" className="text-primary-600 hover:text-primary-700 font-medium">
-                Sign in
-              </Link>
-            </p>
-            <p className="text-xs text-text-muted text-center">
-              Student registration is temporarily closed. Administrator accounts are not
-              self-registered — sign in at{" "}
-              <Link href="/login/admin" className="text-primary-600 hover:text-primary-700 font-medium">
-                /login/admin
-              </Link>
-            </p>
-          </div>
-        )}
-
-        {stage === "code" && (
-          <div className="space-y-4">
-            <div className="p-3 bg-primary-50 border border-primary-100 rounded-lg text-sm text-primary-800 flex items-start gap-2">
-              <Mail className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>
-                We sent a one-time code to <strong>{email}</strong>. Enter it below to verify your email.
-              </span>
-            </div>
-            <Input
-              id="register-code"
-              label="One-time code"
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              placeholder="123456"
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ""))}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") verifyCode();
-              }}
-            />
-            <Button
-              onClick={verifyCode}
-              disabled={isVerifying}
-              isLoading={isVerifying}
-              className="w-full"
-            >
-              {!isVerifying && (
-                <>
-                  <UserPlus className="w-4 h-4" />
-                  Verify & Create Account
-                </>
-              )}
-            </Button>
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-text-secondary">
-              <button
-                type="button"
-                onClick={resendCode}
-                className="text-primary-600 hover:text-primary-700 font-medium"
-              >
-                Resend code
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setStage("form");
-                  setCode("");
-                  setError("");
-                  setNotice("");
-                }}
-                className="text-text-muted hover:text-text-secondary font-medium"
-              >
-                Use a different email
-              </button>
-            </div>
           </div>
         )}
 
@@ -374,8 +412,11 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
             <HelpCircle className="w-3.5 h-3.5 shrink-0" />
           )}
           <span>
-            Your email is verified with a one-time code. After registering, sign in with a fresh
-            code sent to this email.
+            {stage === "email"
+              ? "Enter your email to receive a one-time verification code"
+              : stage === "code"
+                ? "Enter the 6-digit code sent to your email"
+                : "Your email is verified — complete your profile to finish"}
           </span>
         </div>
       </AuthCard>
