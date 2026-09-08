@@ -1,8 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import Link from "next/link";
-import { useSignIn, useSignUp, useAuth, useClerk } from "@clerk/nextjs";
 import {
   HelpCircle,
   Loader2,
@@ -21,7 +20,6 @@ import { Button } from "@/components/ui/Button";
 import { setBindingToken } from "@/lib/session-binding";
 import { setAuthCookie } from "@/lib/mock-auth";
 import { saveRollNumber } from "@/lib/roll-number";
-import { getClerkSessionToken } from "@/lib/clerk-session-token";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
@@ -41,36 +39,10 @@ const PORTAL_TITLES: Record<RegisterPortal, string> = {
   student: "Student Registration",
 };
 
-/**
- * Shared registration portal used by /register and /register/candidate.
- *
- * PORTAL STATUS (for now): only CANDIDATE registration is open. Student
- * registration is closed (/register/student shows the closed notice) and
- * admin accounts are never self-registered (/login/admin only).
- *
- * A candidate registration creates a STUDENT-backed login for the candidate
- * application flow: full details (name, email, roll no, phone, password) →
- * one-time code (sent by Clerk) → dashboard → apply as candidate. Candidacy
- * itself is granted when an admin approves the application, never at signup.
- * The password + name are supplied to the Clerk sign-up up-front so the
- * sign-up can COMPLETE once the email code is verified (the Clerk instance
- * requires first/last name and a password to finish a new sign-up).
- */
 export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
-  const { signIn } = useSignIn();
-  const { signUp } = useSignUp();
-  const { getToken, isLoaded: authLoaded, isSignedIn, sessionId } = useAuth();
-  const clerk = useClerk();
-
-  // Candidate is the only registrable role for now.
   const [selectedRole] = useState<"candidate" | "student">("candidate");
 
-  // Set when a "send code" click had to sign out of an active Clerk session
-  // first; the effect below retries the send once Clerk reports signed-out.
-  const [pendingSend, setPendingSend] = useState(false);
-
   const [stage, setStage] = useState<Stage>("form");
-  const [flow, setFlow] = useState<"signup" | null>(null);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [rollNumber, setRollNumber] = useState("");
@@ -80,66 +52,8 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
   const [code, setCode] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-
-  const describe = (err: unknown): string => {
-    const anyErr = err as { code?: string; message?: string } | null;
-    const code = anyErr?.code ? ` (code: ${anyErr.code})` : "";
-    const message = anyErr?.message ? ` — ${anyErr.message}` : "";
-    return `${code}${message}`;
-  };
-
-  // PHASE 1 diagnostics: log what the REAL ClerkJS sign-up state is at each
-  // step. Only field names and booleans — never passwords, emails, tokens,
-  // or ids.
-  const logSignupState = (
-    label: string,
-    s: typeof signUp
-  ): void => {
-    if (!s) {
-      console.log(`[register] ${label}: no sign-up resource`);
-      return;
-    }
-    console.log(
-      `[register] ${label}:`,
-      JSON.stringify({
-        status: s.status,
-        createdSessionId: Boolean(s.createdSessionId),
-        createdUserId: Boolean(s.createdUserId),
-        hasPassword: s.hasPassword,
-        firstNameSet: Boolean(s.firstName),
-        lastNameSet: Boolean(s.lastName),
-        emailAddressSet: Boolean(s.emailAddress),
-        missingFields: s.missingFields ?? [],
-        unverifiedFields: s.unverifiedFields ?? [],
-        requiredFields: s.requiredFields ?? [],
-      })
-    );
-  };
-
-  const isNotFoundError = (err: unknown): boolean => {
-    const anyErr = err as { code?: string; message?: string } | null;
-    const code = String(anyErr?.code || "");
-    const message = String(anyErr?.message || "").toLowerCase();
-    return (
-      code.includes("identifier_not_found") ||
-      code.includes("form_identifier_not_found") ||
-      code.includes("not_found") ||
-      // The SDK sometimes wraps Clerk's "Couldn't find your account." error
-      // in a generic api_response_error — match the human message too.
-      message.includes("couldn't find") ||
-      message.includes("couldnt find") ||
-      message.includes("could not find") ||
-      message.includes("no account")
-    );
-  };
-
-  const isAlreadySignedInError = (err: unknown): boolean => {
-    const message = String((err as { message?: string } | null)?.message || "").toLowerCase();
-    return message.includes("already signed in") || message.includes("session already");
-  };
 
   const validateForm = (): string | null => {
     if (fullName.trim().length < 2) return "Enter your full name.";
@@ -154,7 +68,21 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     return null;
   };
 
-  // ---- Stage 1: validate details, then send the one-time code ----
+  const csrfFetch = async (url: string, opts: RequestInit = {}) => {
+    const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
+    const csrfData = await csrfRes.json().catch(() => ({}));
+    const csrfToken = csrfData.data?.csrfToken || "";
+    return fetch(url, {
+      ...opts,
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": csrfToken,
+        ...(opts.headers as Record<string, string> || {}),
+      },
+    });
+  };
+
   const startRegistration = async () => {
     setError("");
     const invalid = validateForm();
@@ -162,308 +90,98 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       setError(invalid);
       return;
     }
-    if (!signIn || !signUp) {
-      setError("Still loading. Please try again in a moment.");
-      return;
-    }
-    // An active Clerk session blocks starting a new code flow (Clerk
-    // rejects with "You're already signed in."). Sign out of the stale
-    // session first; the effect below retries the send once signed out.
-    if (authLoaded && isSignedIn) {
-      setPendingSend(true);
-      setIsSending(true);
-      clerk.signOut().catch(() => {});
-      return;
-    }
     setIsSending(true);
     try {
       const normalized = email.trim().toLowerCase();
-      const parts = fullName.trim().split(/\s+/);
-      const firstName = parts.slice(0, -1).join(" ") || parts[0];
-      const lastName = parts[parts.length - 1] || "";
-
-      // Probe: does this email already exist? signIn.create starts an attempt
-      // without sending any email.
-      try {
-        await signIn.reset();
-      } catch { /* no prior attempt to reset */ }
-      const probe = await signIn.create({ identifier: normalized });
-      if (!probe?.error) {
-        setError("An account with this email already exists. Sign in instead.");
-        setIsSending(false);
-        return;
-      }
-      if (!isNotFoundError(probe.error)) {
-        // Session appeared mid-flow (e.g. restored late) — sign out & retry.
-        if (isAlreadySignedInError(probe.error)) {
-          setPendingSend(true);
-          clerk.signOut().catch(() => {});
-          return;
-        }
-        setError(`We couldn't start registration for that email${describe(probe.error)}`);
-        setIsSending(false);
-        return;
-      }
-
-      // Brand-new email → create the Clerk sign-up. First/last name + password
-      // are provided up-front so the sign-up reaches "complete" once the email
-      // code verifies (the instance requires these attributes).
-      const up = await signUp.create({
-        emailAddress: normalized,
-        firstName,
-        lastName,
-        password,
+      const res = await csrfFetch(`${API_BASE}/auth/register/otp`, {
+        method: "POST",
+        body: JSON.stringify({
+          email: normalized,
+          username: rollNumber.trim(),
+          password,
+          confirmPassword,
+          role: selectedRole.toUpperCase(),
+        }),
       });
-      logSignupState("after create", signUp);
-      if (up?.error) {
-        setError(`We couldn't start registration for that email${describe(up.error)}`);
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data.error) {
+        console.error("Register OTP send failed:", data.error || res.status);
+        setError(data.error?.message || "We couldn't send the verification code. Please try again.");
         setIsSending(false);
         return;
       }
-      const sent = await signUp.verifications.sendEmailCode();
-      logSignupState("after sendEmailCode", signUp);
-      if (sent?.error) {
-        setError(`We couldn't send the code to that email${describe(sent.error)}`);
-        setIsSending(false);
-        return;
-      }
-      setFlow("signup");
+
       setStage("code");
       setIsSending(false);
     } catch (err) {
-      console.error("register startRegistration:", err);
+      console.error("startRegistration threw:", err);
       setError("We couldn't start registration. Please check your connection and try again.");
       setIsSending(false);
     }
   };
 
-  // After clicking "Register" while a stale Clerk session was active, retry
-  // the send automatically once the sign-out completes.
-  useEffect(() => {
-    if (!pendingSend || !authLoaded) return;
-    if (!isSignedIn) {
-      setPendingSend(false);
-      startRegistration();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingSend, authLoaded, isSignedIn]);
-
-  // ---- Stage 2: verify the code → sign-up completes → finish the account ----
-  const verifyCode = async (): Promise<boolean> => {
+  const verifyCode = async () => {
     setError("");
     if (!code || code.trim().length < 4) {
       setError("Enter the code you received by email.");
-      return false;
+      return;
     }
     setIsVerifying(true);
     try {
-      const trimmed = code.trim();
-
-      if (flow === "signup" && signUp) {
-        console.log("[REGISTER DEBUG] verifyEmailCode start");
-        const res = await signUp.verifications.verifyEmailCode({ code: trimmed });
-        console.log("[REGISTER DEBUG] verify result error:", res?.error ?? null);
-        logSignupState("after verifyEmailCode", signUp);
-        console.log("[REGISTER DEBUG] signUp status:", signUp.status);
-        console.log("[REGISTER DEBUG] createdSessionId:", signUp.createdSessionId);
-        if (res?.error) {
-          setError(`The code was not accepted${describe(res.error)}`);
-          setIsVerifying(false);
-          return false;
-        }
-
-        // The instance only requires first/last name + password alongside the
-        // verified email, so a successful code normally flips status to
-        // "complete". If it is still "missing_requirements", push in anything
-        // that did not ride the original create() and re-check.
-        let status = signUp.status;
-        if (status === "missing_requirements" && (signUp.missingFields?.length || 0) > 0) {
-          logSignupState("missing_requirements: satisfying fields", signUp);
-          const parts = fullName.trim().split(/\s+/);
-          const firstName = parts.slice(0, -1).join(" ") || parts[0];
-          const lastName = parts[parts.length - 1] || "";
-          const patch: Record<string, string> = {};
-          for (const f of signUp.missingFields ?? []) {
-            if (f === "first_name" && !signUp.firstName) patch.firstName = firstName;
-            else if (f === "last_name" && !signUp.lastName) patch.lastName = lastName;
-            else if (f === "password" && !signUp.hasPassword) patch.password = password;
-          }
-          if (Object.keys(patch).length > 0) {
-            try {
-              const upd = await signUp.update(patch as Parameters<typeof signUp.update>[0]);
-              console.log("[REGISTER DEBUG] after signUp.update");
-              logSignupState("after update", signUp);
-              if (upd?.error) {
-                setError(`We couldn't finish your account setup${describe(upd.error)}`);
-                setIsVerifying(false);
-                return false;
-              }
-              status = signUp.status;
-            } catch (err) {
-              console.error("register update missing fields:", err);
-            }
-          }
-        }
-
-        if (status === "complete") {
-          logSignupState("complete branch", signUp);
-          console.log("[register] signup status", signUp.status);
-          console.log("[register] createdSessionId", signUp.createdSessionId);
-          const createdSessionId = signUp.createdSessionId;
-          if (!createdSessionId) {
-            setError("Your email is verified, but the session could not be created. Please sign in to continue.");
-            setIsVerifying(false);
-            return false;
-          }
-          console.log("[REGISTER DEBUG] before setActive");
-          try {
-            await clerk.setActive({ session: createdSessionId });
-            console.log("[REGISTER DEBUG] after setActive");
-            console.log("[REGISTER DEBUG] active clerk session id:", clerk.session?.id ?? null);
-            await new Promise((r) => setTimeout(r, 400));
-          } catch (e) {
-            console.error("[REGISTER DEBUG] setActive error:", e);
-          }
-        } else {
-          logSignupState("unresolved status", signUp);
-          if (status === "abandoned") {
-            setError("This registration expired and cannot be completed. Please start again.");
-          } else if ((signUp.missingFields ?? []).includes("email_address")) {
-            setError("Your email could not be verified. Request a fresh code and try again.");
-          } else {
-            setError("Your email is verified, but the account setup still needs a few details. Please go back and register again.");
-          }
-          setIsVerifying(false);
-          return false;
-        }
-      } else {
-        setError("Registration is still loading. Please try again.");
-        setIsVerifying(false);
-        return false;
-      }
-
-      setIsVerifying(false);
-      return true;
-    } catch (err) {
-      console.error("[REGISTER DEBUG] VERIFY CODE ERROR:", err);
-      setError("Something went wrong verifying the code. Please try again.");
-      setIsVerifying(false);
-      return false;
-    }
-  };
-
-  // ---- Finish: create the backend account → dashboard ----
-  const completeRegistration = async () => {
-    setError("");
-    setIsSubmitting(true);
-    try {
-      console.log("[REGISTER DEBUG] completeRegistration start");
-      console.log("[REGISTER DEBUG] before getToken");
-      const token = await getClerkSessionToken(getToken, {
-        isLoaded: authLoaded,
-        isSignedIn,
-        sessionId,
-        retries: 5,
-        retryDelayMs: 400,
-      });
-      if (!token) {
-        console.error("[REGISTER DEBUG] getToken returned null (no active session)");
-        setIsSubmitting(false);
-        setError(
-          "Your email was verified and your account was created, but no valid session token was issued. Please sign in to continue."
-        );
-        return;
-      }
-      console.log("[REGISTER DEBUG] token present:", typeof token === "string" && token.split(".").length === 3);
-
-      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
-      const csrfData = await csrfRes.json().catch(() => ({}));
-      const csrfToken = csrfData.data?.csrfToken || "";
-      console.log("[REGISTER DEBUG] csrf status:", csrfRes.status, "csrf token present:", !!csrfToken);
-
-      console.log("[REGISTER DEBUG] before backend register POST");
-      const res = await fetch(`${API_BASE}/auth/register/clerk`, {
+      const normalized = email.trim().toLowerCase();
+      const res = await csrfFetch(`${API_BASE}/auth/register/verify`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrfToken,
-          Authorization: `Bearer ${token}`,
-        },
-        credentials: "include",
         body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          rollNumber: rollNumber.trim(),
+          email: normalized,
+          otp: code.trim(),
+          username: rollNumber.trim(),
           fullName: fullName.trim(),
           mobileNumber: phone.replace(/[\s()-]/g, ""),
+          enrollmentNumber: rollNumber.trim(),
           password,
-          role: "CANDIDATE",
+          role: selectedRole.toUpperCase(),
         }),
       });
-      const rawBody = await res.text();
-      console.log("[REGISTER DEBUG] backend response:", res.status, rawBody);
-      const data: Record<string, unknown> = (() => {
-        try {
-          return rawBody ? JSON.parse(rawBody) : {};
-        } catch {
-          return {};
-        }
-      })();
+      const data = await res.json().catch(() => ({}));
 
-      if (!res.ok) {
-        const errBody = data.error as
-          | { code?: string; message?: string }
-          | string
-          | undefined;
-        console.log("[REGISTER DEBUG] backend error object:", errBody ?? null);
-        // Handle both backend response formats:
-        //   A) { error: { code, message } }
-        //   B) { error: "Forbidden", message: "...", code: "..." }
-        // Never surface raw backend internals beyond the message itself.
-        const errorMessage =
-          (errBody && typeof errBody === "object" && errBody.message) ||
-          (typeof data.message === "string" ? (data.message as string) : null) ||
-          (typeof errBody === "string" ? errBody : null) ||
-          "Registration failed. Please try again.";
-        if (errBody && typeof errBody === "object" && errBody.code === "EMAIL_EXISTS") {
-          setNotice(errorMessage);
-          setError("");
-          setIsSubmitting(false);
-          return;
-        }
-        setError(errorMessage);
-        setIsSubmitting(false);
+      if (!res.ok || data.error) {
+        console.error("Register verify failed:", data.error || res.status);
+        setError(data.error?.message || "Invalid or expired code. Please try again.");
+        setIsVerifying(false);
         return;
       }
 
-      // Success: persist the session artifacts + roll number (skips the
-      // roll-number prompt after sign-in) and go to the dashboard.
-      const payload = data.data as
-        | { bindingToken?: string; user?: { name?: string; email?: string; role?: string } }
-        | undefined;
-      if (payload?.bindingToken) setBindingToken(payload.bindingToken);
-      const user = payload?.user;
-      if (user?.name) setAuthCookie("student", user.name, user.email || email);
-      if (rollNumber.trim()) {
-        saveRollNumber("student", email.trim().toLowerCase(), rollNumber.trim());
+      const result = data.data;
+
+      if (result.authenticated) {
+        if (result.bindingToken) setBindingToken(result.bindingToken);
+        if (result.user) {
+          setAuthCookie(result.user.role || selectedRole.toUpperCase(), result.user.name || fullName, result.user.email || normalized);
+        }
+        if (rollNumber.trim()) {
+          saveRollNumber("student", normalized, rollNumber.trim());
+        }
+        const role = String(result.user?.role || "STUDENT").toUpperCase();
+        const dest =
+          role === "STUDENT" && rollNumber.trim() ? "/candidate/apply" : DASHBOARDS[role] || "/student/dashboard";
+        window.location.href = dest;
+        return;
       }
 
-      const role = String(user?.role || "STUDENT").toUpperCase();
-      // New candidates land on the application form (they are STUDENT-backed
-      // until an admin approves their application).
-      const dest =
-        role === "STUDENT" && rollNumber.trim() ? "/candidate/apply" : DASHBOARDS[role] || "/student/dashboard";
-      window.location.href = dest;
+      setError("Something unexpected happened. Please try again.");
+      setIsVerifying(false);
     } catch (err) {
-      console.error("[REGISTER DEBUG] COMPLETE REGISTRATION ERROR:", err);
-      setError("Unable to reach the server. Please check your connection and try again.");
-      setIsSubmitting(false);
+      console.error("verifyCode threw:", err);
+      setError("Something went wrong verifying the code. Please try again.");
+      setIsVerifying(false);
     }
   };
 
-  const handleVerify = async () => {
-    if (await verifyCode()) {
-      completeRegistration();
-    }
+  const resendCode = () => {
+    setCode("");
+    setError("");
+    startRegistration();
   };
 
   return (
@@ -600,9 +318,6 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
                 /login/admin
               </Link>
             </p>
-            {/* Clerk renders its invisible bot-protection CAPTCHA here when
-                creating brand-new accounts. */}
-            <div id="clerk-captcha" />
           </div>
         )}
 
@@ -624,16 +339,16 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ""))}
               onKeyDown={(e) => {
-                if (e.key === "Enter") handleVerify();
+                if (e.key === "Enter") verifyCode();
               }}
             />
             <Button
-              onClick={handleVerify}
-              disabled={isVerifying || isSubmitting}
-              isLoading={isVerifying || isSubmitting}
+              onClick={verifyCode}
+              disabled={isVerifying}
+              isLoading={isVerifying}
               className="w-full"
             >
-              {!(isVerifying || isSubmitting) && (
+              {!isVerifying && (
                 <>
                   <UserPlus className="w-4 h-4" />
                   Verify & Create Account
@@ -643,12 +358,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-text-secondary">
               <button
                 type="button"
-                onClick={() => {
-                  if (flow === "signup" && signUp) signUp.verifications.sendEmailCode().catch(() => {});
-                  setCode("");
-                  setError("");
-                  setNotice("A new code has been sent to your email.");
-                }}
+                onClick={resendCode}
                 className="text-primary-600 hover:text-primary-700 font-medium"
               >
                 Resend code
@@ -656,11 +366,8 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
               <button
                 type="button"
                 onClick={() => {
-                  signUp.reset?.().catch(() => {});
-                  signIn.reset?.().catch(() => {});
                   setStage("form");
                   setCode("");
-                  setFlow(null);
                   setError("");
                   setNotice("");
                 }}
@@ -673,7 +380,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
         )}
 
         <div className="mt-6 pt-4 border-t border-border text-xs text-text-secondary text-center flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 leading-relaxed px-1">
-          {isSubmitting || isVerifying ? (
+          {isVerifying ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
           ) : (
             <HelpCircle className="w-3.5 h-3.5 shrink-0" />

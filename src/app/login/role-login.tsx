@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useSignIn, useSignUp, useAuth, useClerk } from "@clerk/nextjs";
 import { HelpCircle, Loader2, ShieldAlert, Mail, KeyRound } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
@@ -29,22 +28,6 @@ const ROLE_LABEL: Record<string, string> = {
   administrator: "Administrator",
 };
 
-/**
- * Shared login portal used by /login, /login/student, /login/cad and
- * /login/admin. The `portal` prop preselects (and for non-student portals
- * locks) the role; the backend still verifies the DB role after sign-in.
- *
- * Two sign-in methods:
- *
- * 1. EMAIL CODE (student / candidate / CAD portals, and the "any" main page
- *    for non-administrator roles). The user enters their email and Clerk
- *    emails a one-time code. Accounts are created on the fly for new emails
- *    (the CAD portal is open), so there is no invite gate for these portals.
- *
- * 2. FIXED EMAIL + PASSWORD (Admin portal). The email must be in ADMIN_EMAILS
- *    and the password must match ADMIN_PORTAL_PASSWORD (checked server-side).
- *    No Clerk involvement.
- */
 export function RoleLoginPage({
   portal,
   initialRole,
@@ -52,16 +35,6 @@ export function RoleLoginPage({
   portal: "any" | "student" | "cad" | "admin";
   initialRole?: UserRole;
 }) {
-  const { signIn } = useSignIn();
-  const { signUp } = useSignUp();
-  const { isLoaded: authLoaded, isSignedIn } = useAuth();
-  const clerk = useClerk();
-
-  // Set when a "send code" click had to sign out of an active Clerk session
-  // first; the effect below retries the send once Clerk reports signed-out.
-  const [pendingSend, setPendingSend] = useState(false);
-
-  // Effective role: locked by the portal, or chosen on the "any" page.
   const [selectedRole, setSelectedRole] = useState<UserRole>(
     initialRole ||
       (portal === "student"
@@ -73,37 +46,32 @@ export function RoleLoginPage({
             : "student")
   );
 
-  // Admin password login uses a separate credential path (no Clerk).
-  const isAdminFlow =
-    portal === "admin" || selectedRole === "administrator";
+  const isAdminFlow = portal === "admin" || selectedRole === "administrator";
 
-  // Email-code flow state
   const [stage, setStage] = useState<"email" | "code">("email");
   const [flow, setFlow] = useState<"signin" | "signup" | null>(null);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [challengeId, setChallengeId] = useState<string | null>(null);
   const [notice, setNotice] = useState(
     portal === "admin"
       ? "Administrator access only — only listed administrator emails can sign in."
       : portal === "cad"
-        ? "Election monitor portal — anyone with an email address can sign in with a one-time code. Only the Admin portal is restricted."
+        ? "Election monitor portal — anyone with an email address can sign in with a one-time code."
         : ""
   );
   const [error, setError] = useState("");
 
-  // Admin password fields
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [isAdminLoggingIn, setIsAdminLoggingIn] = useState(false);
 
-  // Student / candidate sign-in method (one-time code or password)
   const [signInMethod, setSignInMethod] = useState<"code" | "password">("code");
   const [password, setPassword] = useState("");
 
   useEffect(() => {
-    // Surface role-mismatch rejections relayed by the callback page
     const flagged = sessionStorage.getItem("campusvote_role_mismatch");
     if (flagged) {
       setNotice("");
@@ -114,39 +82,9 @@ export function RoleLoginPage({
     }
   }, []);
 
-  const describe = (err: unknown): string => {
-    const anyErr = err as { code?: string; message?: string } | null;
-    const code = anyErr?.code ? ` (code: ${anyErr.code})` : "";
-    const message = anyErr?.message ? ` — ${anyErr.message}` : "";
-    return `${code}${message}`;
-  };
-
-  const isNotFoundError = (err: unknown): boolean => {
-    const anyErr = err as { code?: string; message?: string } | null;
-    const code = String(anyErr?.code || "");
-    const message = String(anyErr?.message || "").toLowerCase();
-    return (
-      code.includes("identifier_not_found") ||
-      code.includes("form_identifier_not_found") ||
-      code.includes("not_found") ||
-      // The SDK sometimes wraps Clerk's "Couldn't find your account." error
-      // in a generic api_response_error — match the human message too.
-      message.includes("couldn't find") ||
-      message.includes("couldnt find") ||
-      message.includes("could not find") ||
-      message.includes("no account")
-    );
-  };
-
-  const isAlreadySignedInError = (err: unknown): boolean => {
-    const message = String((err as { message?: string } | null)?.message || "").toLowerCase();
-    return message.includes("already signed in") || message.includes("session already");
-  };
-
   const setRoleFlags = () => {
     const roleKey = selectedRole;
     sessionStorage.setItem("campusvote_login_role", roleKey);
-    sessionStorage.setItem("campusvote_oauth_started", "1");
     sessionStorage.removeItem("campusvote_bridged");
     sessionStorage.removeItem("campusvote_dest");
   };
@@ -155,16 +93,19 @@ export function RoleLoginPage({
     window.location.href = `${window.location.origin}/auth/clerk-callback`;
   };
 
-  // If a Clerk session is ALREADY active (signed in earlier but landed back on
-  // /login), skip the round-trip and bridge straight to the backend session.
-  const bounceExistingSession = () => {
-    if (isAdminFlow) return false;
-    if (authLoaded && isSignedIn) {
-      setRoleFlags();
-      goToCallback();
-      return true;
-    }
-    return false;
+  const csrfFetch = async (url: string, opts: RequestInit = {}) => {
+    const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
+    const csrfData = await csrfRes.json().catch(() => ({}));
+    const csrfToken = csrfData.data?.csrfToken || "";
+    return fetch(url, {
+      ...opts,
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": csrfToken,
+        ...(opts.headers as Record<string, string> || {}),
+      },
+    });
   };
 
   const sendEmailCode = async () => {
@@ -173,148 +114,34 @@ export function RoleLoginPage({
       setError("Enter a valid email address to continue.");
       return;
     }
-    if (!signIn || !signUp) {
-      setError("Sign-in is still loading. Please try again in a moment.");
-      return;
-    }
-    // An active Clerk session blocks starting a new code flow (Clerk
-    // rejects with "You're already signed in."). Sign out of the stale
-    // session first; the effect below retries the send once signed out.
-    if (authLoaded && isSignedIn) {
-      setPendingSend(true);
-      setIsSending(true);
-      clerk.signOut().catch(() => {});
-      return;
-    }
     setIsSending(true);
     try {
       setRoleFlags();
       const normalized = email.trim().toLowerCase();
+      const backendRole = (selectedRole === "candidate" ? "STUDENT" : selectedRole === "administrator" ? "STUDENT" : selectedRole.toUpperCase());
 
-      // Attempt 1: the email belongs to an existing Clerk account → sign in.
-      const res = await signIn.emailCode.sendCode({ emailAddress: normalized });
-      if (!res?.error) {
-        setFlow("signin");
-        setStage("code");
+      const res = await csrfFetch(`${API_BASE}/auth/otp/send-login`, {
+        method: "POST",
+        body: JSON.stringify({ email: normalized, role: backendRole }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data.error) {
+        console.error("OTP send failed:", data.error || res.status);
+        setError(data.error?.message || "We couldn't send the code. Please try again.");
         setIsSending(false);
         return;
       }
 
-      // Attempt 2: brand-new email → create the account (email-code sign-up).
-      if (isNotFoundError(res.error)) {
-        const up = await signUp.create({ emailAddress: normalized });
-        if (up?.error) {
-          console.error("Email code (sign-up create) failed:", up.error);
-          setError(
-            `We couldn't start sign-in for that email${describe(up.error)}`
-          );
-          setIsSending(false);
-          return;
-        }
-        const sent = await signUp.verifications.sendEmailCode();
-        if (sent?.error) {
-          console.error("Email code (send, sign-up) failed:", sent.error);
-          setError(
-            `We couldn't send the code to that email${describe(sent.error)}`
-          );
-          setIsSending(false);
-          return;
-        }
-        setFlow("signup");
-        setStage("code");
-        setIsSending(false);
-        return;
-      }
-
-      // Session appeared mid-flow (e.g. restored late) — sign out & retry.
-      if (isAlreadySignedInError(res.error)) {
-        setPendingSend(true);
-        clerk.signOut().catch(() => {});
-        return;
-      }
-
-      // Any other error (rate limit, blocked address, etc.)
-      console.error("Email code (sign-in) failed:", res.error);
-      setError(
-        `We couldn't send the code to that email${describe(res.error)}`
-      );
+      setChallengeId(data.data?.challengeId || null);
+      setFlow("signin");
+      setStage("code");
       setIsSending(false);
     } catch (err) {
       console.error("sendEmailCode threw:", err);
-      setError(
-        "We couldn't send the code. Please check your connection and try again."
-      );
+      setError("We couldn't send the code. Please check your connection and try again.");
       setIsSending(false);
     }
-  };
-
-  // After clicking "Send code" while a stale Clerk session was active, retry
-  // the send automatically once the sign-out completes.
-  useEffect(() => {
-    if (!pendingSend || !authLoaded) return;
-    if (!isSignedIn) {
-      setPendingSend(false);
-      sendEmailCode();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingSend, authLoaded, isSignedIn]);
-
-  // ---- Student / candidate email + password sign-in ----
-  const passwordLogin = async () => {
-    setError("");
-    if (!email || !email.includes("@") || !password) {
-      setError("Enter both your email and password.");
-      return;
-    }
-    if (!signIn) {
-      setError("Sign-in is still loading. Please try again in a moment.");
-      return;
-    }
-    if (bounceExistingSession()) return;
-    setIsSending(true);
-    try {
-      const normalized = email.trim().toLowerCase();
-      const res = await signIn.create({ identifier: normalized, password });
-      if (res?.error) {
-        if (isNotFoundError(res.error)) {
-          setError(
-            "No account found with this email. Register first, or use the one-time code to sign in."
-          );
-        } else if (isAlreadySignedInError(res.error)) {
-          setError("You already appear to be signed in. Please refresh the page.");
-        } else {
-          setError(`We couldn't sign you in with that password${describe(res.error)}`);
-        }
-        setIsSending(false);
-        return;
-      }
-      if (signIn.status === "complete") {
-        const fin = await signIn.finalize();
-        if (fin?.error) {
-          setError(`Sign-in could not be completed${describe(fin.error)}`);
-          setIsSending(false);
-          return;
-        }
-        setRoleFlags();
-        goToCallback();
-        return;
-      }
-      setError("Sign-in is not complete. Please try again.");
-      setIsSending(false);
-    } catch (err) {
-      console.error("passwordLogin threw:", err);
-      setError("Unable to reach the server. Please check your connection and try again.");
-      setIsSending(false);
-    }
-  };
-
-  const switchMethod = (method: "code" | "password") => {
-    setSignInMethod(method);
-    setError("");
-    setNotice("");
-    try {
-      signIn?.reset?.().catch(() => {});
-    } catch { /* no active attempt to reset */ }
   };
 
   const verifyEmailCode = async () => {
@@ -326,121 +153,40 @@ export function RoleLoginPage({
     setIsVerifying(true);
     try {
       const trimmed = code.trim();
+      const normalized = email.trim().toLowerCase();
+      const backendRole = (selectedRole === "candidate" ? "STUDENT" : selectedRole === "administrator" ? "STUDENT" : selectedRole.toUpperCase());
 
-      if (flow === "signup" && signUp) {
-        const res = await signUp.verifications.verifyEmailCode({
-          code: trimmed,
-        });
-        console.log(
-          "[LOGIN DEBUG] verifyEmailCode:",
-          res?.error ? `error: ${res.error.code}` : "ok",
-          "status:", signUp.status,
-          "missing:", signUp.missingFields,
-        );
-        if (res?.error) {
-          setError(`The code was not accepted${describe(res.error)}`);
-          setIsVerifying(false);
-          return;
-        }
+      const res = await csrfFetch(`${API_BASE}/auth/otp/verify-login`, {
+        method: "POST",
+        body: JSON.stringify({ email: normalized, otp: trimmed, role: backendRole }),
+      });
+      const data = await res.json().catch(() => ({}));
 
-        // Email verification succeeded.  The instance also requires
-        // first_name, last_name, and password to mark the sign-up
-        // "complete".  Fill them automatically so the open "any email"
-        // login / CAD portal auto-provisions a usable account.
-        let status = signUp.status;
-        if (status === "missing_requirements" && (signUp.missingFields?.length || 0) > 0) {
-          console.log("[LOGIN DEBUG] patching missing fields:", signUp.missingFields);
-          const patch: Record<string, string> = {};
-          for (const f of signUp.missingFields ?? []) {
-            if (f === "first_name" && !signUp.firstName) {
-              patch.firstName = email.trim().split("@")[0] || "Voter";
-            } else if (f === "last_name" && !signUp.lastName) {
-              patch.lastName = "";
-            } else if (f === "password" && !signUp.hasPassword) {
-              const rnd = Math.random().toString(36).slice(2) + "A1!";
-              patch.password = rnd;
-            }
-          }
-          if (Object.keys(patch).length > 0) {
-            try {
-              const upd = await signUp.update(patch as Parameters<typeof signUp.update>[0]);
-              console.log("[LOGIN DEBUG] after patch → status:", signUp.status, "error:", upd?.error ?? null);
-              if (upd?.error) {
-                setError(`Could not finish account setup${describe(upd.error)}`);
-                setIsVerifying(false);
-                return;
-              }
-              status = signUp.status;
-            } catch (patchErr) {
-              console.error("[LOGIN DEBUG] patch threw:", patchErr);
-            }
-          }
-        }
-
-        if (status === "complete") {
-          const fin = await signUp.finalize();
-          if (fin?.error) {
-            setError(`Sign-in could not be completed${describe(fin.error)}`);
-            setIsVerifying(false);
-            return;
-          }
-          goToCallback();
-          return;
-        }
-
-        console.log("[LOGIN DEBUG] still not complete:", status, "missing:", signUp.missingFields);
-        setError(
-          "Verification succeeded but your account needs additional details. " +
-          "Please register instead — go to the Register page and use the same email."
-        );
+      if (!res.ok || data.error) {
+        console.error("OTP verify failed:", data.error || res.status);
+        const msg = data.error?.message || "Invalid or expired code. Please try again.";
+        setError(msg);
         setIsVerifying(false);
         return;
       }
 
-      if (signIn) {
-        const res = await signIn.emailCode.verifyCode({ code: trimmed });
-        if (res?.error) {
-          const message = String(
-            (res.error as { message?: string } | null)?.message || ""
-          ).toLowerCase();
-          // Codes are single-use and expire (~10 min), and resending
-          // invalidates older ones — a rejected attempt is almost always a
-          // stale code. Restart the flow so a fresh code goes out.
-          if (
-            message.includes("incorrect") ||
-            message.includes("expired") ||
-            message.includes("already used")
-          ) {
-            setNotice("");
-            setCode("");
-            setStage("email");
-            setFlow(null);
-            setError(
-              "That code is no longer valid (codes expire and resending voids older ones). We've restarted the process — enter your email again and use the newest code."
-            );
-            setIsVerifying(false);
-            return;
-          }
-          setError(`The code was not accepted${describe(res.error)}`);
-          setIsVerifying(false);
-          return;
-        }
-        if (signIn.status === "complete") {
-          const fin = await signIn.finalize();
-          if (fin?.error) {
-            setError(`Sign-in could not be completed${describe(fin.error)}`);
-            setIsVerifying(false);
-            return;
-          }
-          goToCallback();
-          return;
-        }
-        setError("Verification is not complete. Please try again.");
-        setIsVerifying(false);
+      const result = data.data;
+
+      if (result.needsRegistration) {
+        sessionStorage.setItem("campusvote_pending_email", normalized);
+        sessionStorage.setItem("campusvote_pending_role", backendRole);
+        window.location.href = "/register?from=login";
         return;
       }
 
-      setError("Sign-in is still loading. Please try again.");
+      if (result.authenticated) {
+        if (result.bindingToken) setBindingToken(result.bindingToken);
+        if (result.user) setAuthCookie(result.user.role || backendRole, result.user.name || "", result.user.email || normalized);
+        goToCallback();
+        return;
+      }
+
+      setError("Something unexpected happened. Please try again.");
       setIsVerifying(false);
     } catch (err) {
       console.error("verifyEmailCode threw:", err);
@@ -450,17 +196,57 @@ export function RoleLoginPage({
   };
 
   const resendCode = () => {
-    if (flow === "signup" && signUp) {
-      signUp.verifications.sendEmailCode().catch(() => {});
-    } else if (signIn) {
-      signIn.emailCode.sendCode({}).catch(() => {});
-    }
     setCode("");
     setError("");
-    setNotice("A new code has been sent to your email.");
+    sendEmailCode();
   };
 
-  // ---- Admin fixed email + password ----
+  const passwordLogin = async () => {
+    setError("");
+    if (!email || !email.includes("@") || !password) {
+      setError("Enter both your email and password.");
+      return;
+    }
+    setIsSending(true);
+    try {
+      const normalized = email.trim().toLowerCase();
+      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
+      const csrfData = await csrfRes.json().catch(() => ({}));
+      const csrfToken = csrfData.data?.csrfToken || "";
+
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({ email: normalized, password, role: selectedRole.toUpperCase() }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data.error) {
+        setError(data.error?.message || "Incorrect email or password.");
+        setIsSending(false);
+        return;
+      }
+
+      if (data.data?.bindingToken) setBindingToken(data.data.bindingToken);
+      if (data.data?.user) setAuthCookie(data.data.user.role || selectedRole, data.data.user.name || "", data.data.user.email || normalized);
+      goToCallback();
+    } catch (err) {
+      console.error("passwordLogin threw:", err);
+      setError("Unable to reach the server. Please check your connection and try again.");
+      setIsSending(false);
+    }
+  };
+
+  const switchMethod = (method: "code" | "password") => {
+    setSignInMethod(method);
+    setError("");
+    setNotice("");
+  };
+
   const adminLogin = async () => {
     setError("");
     if (!adminEmail || !adminEmail.includes("@") || !adminPassword) {
@@ -469,19 +255,17 @@ export function RoleLoginPage({
     }
     setIsAdminLoggingIn(true);
     try {
-      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, {
-        credentials: "include",
-      });
-      const csrfData = await csrfRes.json();
+      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
+      const csrfData = await csrfRes.json().catch(() => ({}));
       const csrfToken = csrfData.data?.csrfToken || "";
 
       const res = await fetch(`${API_BASE}/auth/admin-portal-login`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
           "X-CSRF-Token": csrfToken,
         },
-        credentials: "include",
         body: JSON.stringify({
           email: adminEmail.trim().toLowerCase(),
           password: adminPassword,
@@ -494,71 +278,48 @@ export function RoleLoginPage({
           setError("Incorrect email or password. Check them and try again.");
         } else if (res.status === 423) {
           setError(data.error?.message || "This account is temporarily locked. Try again later.");
-        } else if (res.status >= 500 || !data.error?.message) {
-          setError("The server is having trouble right now. Please wait a moment and try again.");
         } else {
-          setError(data.error?.message);
+          setError(data.error?.message || "The server is having trouble right now. Please wait a moment and try again.");
         }
         setIsAdminLoggingIn(false);
         return;
       }
 
-      if (data.data?.bindingToken) {
-        setBindingToken(data.data.bindingToken);
-      }
+      if (data.data?.bindingToken) setBindingToken(data.data.bindingToken);
       const user = data.data?.user;
-      if (user?.name) {
-        setAuthCookie("administrator", user.name, user.email || adminEmail);
-      }
+      if (user?.name) setAuthCookie("administrator", user.name, user.email || adminEmail);
       sessionStorage.removeItem("campusvote_bridged");
       sessionStorage.setItem("campusvote_dest", "/admin/dashboard");
       window.location.href = "/admin/dashboard";
     } catch (err) {
       console.error("Admin login failed:", err);
-      setError(
-        "Unable to reach the server. Please check your connection and try again."
-      );
+      setError("Unable to reach the server. Please check your connection and try again.");
       setIsAdminLoggingIn(false);
     }
   };
-
-  // If we land here with an existing Clerk session on a non-admin portal, just
-  // re-bridge (don't force the user through a new code round-trip).
-  useEffect(() => {
-    if (!authLoaded || isAdminFlow) return;
-    // A just-completed sign-out must never be bounced straight back into a
-    // portal — show the clean login form instead.
-    const signedOut = window.sessionStorage.getItem("campusvote_signed_out") === "1";
-    window.sessionStorage.removeItem("campusvote_signed_out");
-    if (signedOut) return;
-    if (isSignedIn) {
-      setRoleFlags();
-      goToCallback();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoaded, isSignedIn, isAdminFlow]);
 
   const roleKey = isAdminFlow ? "administrator" : selectedRole;
 
   return (
     <AuthLayout>
       <AuthCard>
-        <div className="text-center mb-6">            <AuthHeader
-              title={
-                portal === "admin"
-                  ? "Admin Portal"
-                  : portal === "cad"
-                    ? "CAD Portal"
-                    : portal === "student"
-                      ? "Student Portal"
-                      : "Sign In"
-              }
-              subtitle={
-                isAdminFlow
-                  ? "Administrator sign in with your institute email and password"
-                  : "Enter your email and sign in with a one-time code or your password"
-              }
-            />
+        <div className="text-center mb-6">
+          <AuthHeader
+            title={
+              portal === "admin"
+                ? "Admin Portal"
+                : portal === "cad"
+                  ? "CAD Portal"
+                  : portal === "student"
+                    ? "Student Portal"
+                    : "Sign In"
+            }
+            subtitle={
+              isAdminFlow
+                ? "Administrator sign in with your institute email and password"
+                : "Enter your email and sign in with a one-time code or your password"
+            }
+          />
         </div>
 
         {notice && (
@@ -727,9 +488,6 @@ export function RoleLoginPage({
                       </Button>
                     </div>
                   )}
-                  {/* Clerk renders its invisible bot-protection CAPTCHA here
-                      when creating brand-new accounts. */}
-                  <div id="clerk-captcha" />
                 </>
               ) : (
               <>
@@ -808,7 +566,7 @@ export function RoleLoginPage({
           <span>
             {isAdminFlow
               ? "Admin sign-in is protected — only listed administrators can access this portal"
-              : "Secured by Clerk — passwords and codes are verified server-side and never shared with CampusVote"}
+              : "Secured — passwords and codes are verified server-side"}
           </span>
           <HelpCircle className="w-3 h-3 opacity-50 shrink-0" />
         </div>

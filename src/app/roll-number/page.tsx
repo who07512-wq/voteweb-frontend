@@ -3,7 +3,6 @@
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Hash, Loader2 } from "lucide-react";
-import { useUser } from "@clerk/nextjs";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
 import { AuthHeader } from "@/components/auth/AuthHeader";
@@ -24,15 +23,10 @@ const ROLE_LABELS: Record<string, string> = {
 function RollNumberForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const { user } = useUser();
 
   const role =
     params.get("role") === "candidate" ? "candidate" : "student";
-  const email =
-    params.get("email")?.trim() ||
-    (role === "candidate"
-      ? user?.primaryEmailAddress?.emailAddress || ""
-      : "");
+  const email = params.get("email")?.trim() || "";
 
   const nextRaw = params.get("next") || "";
   const next =

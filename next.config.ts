@@ -2,11 +2,9 @@ import type { NextConfig } from "next";
 
 // Next.js rejects Server Action POSTs with "Invalid Server Actions request."
 // (error E80) when the browser's `Origin` header host does not match the
-// `Host` header the server receives. Clerk registers an internal server
-// action (`invalidateCacheAction`) on every page through <ClerkProvider>,
-// and fires it on sign-in / sign-out / session changes. When the app is
-// reached through a LAN IP or a tunnel / reverse proxy, the Origin no longer
-// matches Host, so those origins must be allowlisted.
+// `Host` header the server receives. Server actions may fire from any page,
+// and when the app is reached through a LAN IP or a tunnel / reverse proxy,
+// the Origin no longer matches Host, so those origins must be allowlisted.
 //
 // Pattern rules: each dot-separated segment can be `*` (one segment) or `**`
 // (rest of the host). The port is part of the last segment, e.g. the origin
