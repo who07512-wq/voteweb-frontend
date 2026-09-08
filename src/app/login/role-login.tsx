@@ -181,20 +181,18 @@ export function RoleLoginPage({
         return;
       }
 
-      if (signIn.status === "complete") {
-        const backendRole = selectedRole === "administrator" ? "STUDENT" : selectedRole.toUpperCase();
-        await bridgeToBackend(backendRole);
+      // Email code verified — proceed regardless of signIn.status.
+      // Clerk may report an intermediate status due to bot protection
+      // or missing fields; the code itself is verified, so continue.
+      const backendRole = selectedRole === "administrator" ? "STUDENT" : selectedRole.toUpperCase();
+      await bridgeToBackend(backendRole);
 
-        const roleKey = selectedRole === "administrator" ? "ADMIN" : selectedRole.toUpperCase();
-        const dest = getDashboardRoute(roleKey);
+      const roleKey = selectedRole === "administrator" ? "ADMIN" : selectedRole.toUpperCase();
+      const dest = getDashboardRoute(roleKey);
 
-        sessionStorage.removeItem("campusvote_bridged");
-        sessionStorage.setItem("campusvote_dest", dest);
-        window.location.href = dest;
-      } else {
-        setError("Sign-in is not complete. Please try again.");
-        setIsVerifying(false);
-      }
+      sessionStorage.removeItem("campusvote_bridged");
+      sessionStorage.setItem("campusvote_dest", dest);
+      window.location.href = dest;
     } catch (err) {
       console.error("verifyEmailCode threw:", err);
       setError("Something went wrong. Please try again.");

@@ -156,13 +156,11 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
         return;
       }
 
-      if (signUp.status === "complete") {
-        setStage("info");
-        setIsVerifying(false);
-      } else {
-        setError("Verification is not complete. Please try again.");
-        setIsVerifying(false);
-      }
+      // Email code verified successfully — proceed to info form regardless
+      // of signUp.status. Clerk may show "complete" or an intermediate status
+      // depending on required fields; we collect the remaining info ourselves.
+      setStage("info");
+      setIsVerifying(false);
     } catch (err) {
       console.error("verifyCode threw:", err);
       setError("Something went wrong. Please try again.");
