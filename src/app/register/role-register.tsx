@@ -410,15 +410,25 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       if (!res.ok) {
         const errBody = data.error as
           | { code?: string; message?: string }
+          | string
           | undefined;
         console.log("[REGISTER DEBUG] backend error object:", errBody ?? null);
-        if (errBody?.code === "EMAIL_EXISTS") {
-          setNotice(errBody.message || "An account with this email already exists. Please sign in.");
+        // Handle both backend response formats:
+        //   A) { error: { code, message } }
+        //   B) { error: "Forbidden", message: "...", code: "..." }
+        // Never surface raw backend internals beyond the message itself.
+        const errorMessage =
+          (errBody && typeof errBody === "object" && errBody.message) ||
+          (typeof data.message === "string" ? (data.message as string) : null) ||
+          (typeof errBody === "string" ? errBody : null) ||
+          "Registration failed. Please try again.";
+        if (errBody && typeof errBody === "object" && errBody.code === "EMAIL_EXISTS") {
+          setNotice(errorMessage);
           setError("");
           setIsSubmitting(false);
           return;
         }
-        setError(errBody?.message || "Registration failed. Please try again.");
+        setError(errorMessage);
         setIsSubmitting(false);
         return;
       }
