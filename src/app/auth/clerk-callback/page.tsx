@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
 import { hasRollNumber } from "@/lib/roll-number";
+import { getDashboardRoute } from "@/lib/dashboard-route";
 
 /**
  * Post-login callback page. After OTP verification, the login/register pages
@@ -30,14 +31,7 @@ export default function ClerkCallbackPage() {
       const role = String(auth.role || "STUDENT").toUpperCase();
       const email = auth.email || "";
 
-      const dashboards: Record<string, string> = {
-        STUDENT: "/student/dashboard",
-        CANDIDATE: "/candidate/dashboard",
-        ADMIN: "/admin/dashboard",
-        CAD: "/cad/dashboard",
-      };
-
-      let dest = dashboards[role] || "/student/dashboard";
+      let dest = getDashboardRoute(role);
 
       // Students on candidate portal go to application form
       const loginRole = sessionStorage.getItem("campusvote_login_role") || "student";

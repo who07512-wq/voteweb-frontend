@@ -19,15 +19,9 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { setBindingToken } from "@/lib/session-binding";
 import { setAuthCookie } from "@/lib/mock-auth";
+import { getDashboardRoute } from "@/lib/dashboard-route";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
-
-const DASHBOARDS: Record<string, string> = {
-  STUDENT: "/student/dashboard",
-  CANDIDATE: "/candidate/dashboard",
-  ADMIN: "/admin/dashboard",
-  CAD: "/cad/dashboard",
-};
 
 type Stage = "email" | "code" | "info";
 export type RegisterPortal = "any" | "candidate" | "student";
@@ -198,7 +192,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       await bridgeToBackend(backendRole);
 
       const dest =
-        backendRole === "STUDENT" && rollNumber.trim() ? "/candidate/apply" : DASHBOARDS[backendRole] || "/student/dashboard";
+        backendRole === "STUDENT" && rollNumber.trim() ? "/candidate/apply" : getDashboardRoute(backendRole);
 
       window.location.href = dest;
     } catch (err) {

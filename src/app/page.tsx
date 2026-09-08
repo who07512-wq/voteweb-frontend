@@ -3,14 +3,8 @@
 import React, { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getMe } from "@/lib/api/v1";
+import { getDashboardRoute } from "@/lib/dashboard-route";
 import { Loader2 } from "lucide-react";
-
-const ROLE_ROUTE: Record<string, string> = {
-  STUDENT: "/student/dashboard",
-  CANDIDATE: "/candidate/dashboard",
-  CAD: "/cad/dashboard",
-  ADMIN: "/admin/dashboard",
-};
 
 /**
  * Root — sends already-authenticated users to their role's dashboard and
@@ -28,7 +22,7 @@ export default function Home() {
         if (cancelled) return;
         if (me.authenticated && me.user) {
           const role = String(me.user.role || "").toUpperCase();
-          router.replace(ROLE_ROUTE[role] || "/student/dashboard");
+          router.replace(getDashboardRoute(role));
           return;
         }
         router.replace("/login");

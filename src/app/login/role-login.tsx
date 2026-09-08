@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { setBindingToken } from "@/lib/session-binding";
 import { setAuthCookie } from "@/lib/mock-auth";
+import { getDashboardRoute } from "@/lib/dashboard-route";
 import type { UserRole } from "@/lib/auth-types";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
@@ -76,13 +77,8 @@ export function RoleLoginPage({
   // If already signed in (stale session), redirect to dashboard.
   useEffect(() => {
     if (isSignedIn) {
-      const dashboards: Record<string, string> = {
-        student: "/student/dashboard",
-        candidate: "/candidate/dashboard",
-        cad: "/cad/dashboard",
-        administrator: "/admin/dashboard",
-      };
-      window.location.href = dashboards[selectedRole] || "/student/dashboard";
+      const roleKey = selectedRole === "administrator" ? "ADMIN" : selectedRole.toUpperCase();
+      window.location.href = getDashboardRoute(roleKey);
     }
   }, [isSignedIn, selectedRole]);
 
@@ -189,17 +185,12 @@ export function RoleLoginPage({
         const backendRole = selectedRole === "administrator" ? "STUDENT" : selectedRole.toUpperCase();
         await bridgeToBackend(backendRole);
 
-        const roleKey = selectedRole === "administrator" ? "administrator" : selectedRole;
-        const dashboards: Record<string, string> = {
-          student: "/student/dashboard",
-          candidate: "/candidate/dashboard",
-          cad: "/cad/dashboard",
-          administrator: "/admin/dashboard",
-        };
+        const roleKey = selectedRole === "administrator" ? "ADMIN" : selectedRole.toUpperCase();
+        const dest = getDashboardRoute(roleKey);
 
         sessionStorage.removeItem("campusvote_bridged");
-        sessionStorage.setItem("campusvote_dest", dashboards[roleKey] || "/student/dashboard");
-        window.location.href = dashboards[roleKey] || "/student/dashboard";
+        sessionStorage.setItem("campusvote_dest", dest);
+        window.location.href = dest;
       } else {
         setError("Sign-in is not complete. Please try again.");
         setIsVerifying(false);
