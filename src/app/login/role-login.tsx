@@ -31,7 +31,7 @@ export function RoleLoginPage({
   initialRole?: UserRole;
 }) {
   const { signIn } = useSignIn();
-  const { getToken } = useAuth();
+  const { getToken, isSignedIn } = useAuth();
 
   const [selectedRole, setSelectedRole] = useState<UserRole>(
     initialRole ||
@@ -72,6 +72,19 @@ export function RoleLoginPage({
       sessionStorage.removeItem("campusvote_role_mismatch");
     }
   }, []);
+
+  // If already signed in (stale session), redirect to dashboard.
+  useEffect(() => {
+    if (isSignedIn) {
+      const dashboards: Record<string, string> = {
+        student: "/student/dashboard",
+        candidate: "/candidate/dashboard",
+        cad: "/cad/dashboard",
+        administrator: "/admin/dashboard",
+      };
+      window.location.href = dashboards[selectedRole] || "/student/dashboard";
+    }
+  }, [isSignedIn, selectedRole]);
 
   const setRoleFlags = () => {
     sessionStorage.setItem("campusvote_login_role", selectedRole);

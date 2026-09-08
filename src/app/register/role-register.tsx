@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSignUp, useAuth } from "@clerk/nextjs";
 import {
@@ -40,9 +40,17 @@ const PORTAL_TITLES: Record<RegisterPortal, string> = {
 
 export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
   const { signUp } = useSignUp();
-  const { getToken } = useAuth();
+  const { getToken, isSignedIn } = useAuth();
 
   const [selectedRole] = useState<"candidate" | "student">("candidate");
+
+  // If already signed in (stale session from a previous login), redirect to
+  // login so the user can sign out properly before registering a new account.
+  useEffect(() => {
+    if (isSignedIn) {
+      window.location.href = "/login";
+    }
+  }, [isSignedIn]);
 
   const [stage, setStage] = useState<Stage>("email");
   const [fullName, setFullName] = useState("");
