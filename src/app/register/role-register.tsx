@@ -270,8 +270,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
         // The instance only requires first/last name + password alongside the
         // verified email, so a successful code normally flips status to
         // "complete". If it is still "missing_requirements", push in anything
-        // that did not ride the original create() and re-check — never report
-        // a fake "verification session expired".
+        // that did not ride the original create() and re-check.
         let status = signUp.status;
         if (status === "missing_requirements" && (signUp.missingFields?.length || 0) > 0) {
           logSignupState("missing_requirements: satisfying fields", signUp);
@@ -287,7 +286,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
           if (Object.keys(patch).length > 0) {
             try {
               const upd = await signUp.update(patch as Parameters<typeof signUp.update>[0]);
-              logSignupState("after update(missing fields)", signUp);
+              logSignupState("after update", signUp);
               if (upd?.error) {
                 setError(`We couldn't finish your account setup${describe(upd.error)}`);
                 setIsVerifying(false);
@@ -302,18 +301,19 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
 
         if (status === "complete") {
           logSignupState("complete branch", signUp);
-          // signUp.finalize() exists but ONLY works when createdSessionId is
-          // already set, and then it just calls setActive with that id — so on
-          // a complete sign-up it is redundant. Activate the created session
-          // directly and give Clerk a moment to propagate it before getToken().
+          console.log("[register] signup status", signUp.status);
+          console.log("[register] createdSessionId", signUp.createdSessionId);
           const createdSessionId = signUp.createdSessionId;
-          if (createdSessionId) {
-            try {
-              await clerk.setActive({ session: createdSessionId });
-              await new Promise((r) => setTimeout(r, 400));
-            } catch (e) {
-              console.error("register setActive:", e);
-            }
+          if (!createdSessionId) {
+            setError("Your email is verified, but the session could not be created. Please sign in to continue.");
+            setIsVerifying(false);
+            return false;
+          }
+          try {
+            await clerk.setActive({ session: createdSessionId });
+            await new Promise((r) => setTimeout(r, 400));
+          } catch (e) {
+            console.error("register setActive:", e);
           }
         } else {
           logSignupState("unresolved status", signUp);
@@ -348,39 +348,18 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     setError("");
     setIsSubmitting(true);
     try {
-      // The Clerk session token proves the email was verified by code.
-      // A fresh email-code signup may not have an active session yet — the
-      // session is activated in verifyCode; retry getToken for a few seconds
-      // before giving up, so a just-completed verification isn't reported as
-      // "expired".
       let token: string | null = null;
-      let attempt = 0;
-      while (attempt < 5 && !token) {
-        attempt += 1;
-        try {
-          token = await getToken({ skipCache: true });
-        } catch {
-          token = null;
-        }
-        console.log("[register] token attempt:", attempt, Boolean(token));
-        if (!token && attempt < 5) {
-          await new Promise((r) => setTimeout(r, 500));
-        }
+      try {
+        token = await getToken({ skipCache: true });
+      } catch {
+        token = null;
       }
+      console.log("[register] active session/token result", Boolean(token));
       if (!token) {
-        // Email verification and the Clerk account creation DID succeed — the
-        // only failure is grabbing a JWT for the brand-new session. Hand the
-        // user to sign-in instead of a fake "verification session expired"
-        // error. The backend CampusVote account is NOT claimed here because
-        // /auth/register/clerk was never called.
         setIsSubmitting(false);
-        setError("");
-        setNotice(
-          "Email verified successfully. Your account has been created. Please sign in to continue."
+        setError(
+          "Your email was verified and your account was created, but no session token was issued. Please sign in to continue."
         );
-        setTimeout(() => {
-          window.location.href = "/login";
-        }, 1500);
         return;
       }
 
