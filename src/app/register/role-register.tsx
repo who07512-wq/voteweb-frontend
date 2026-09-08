@@ -259,8 +259,12 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       const trimmed = code.trim();
 
       if (flow === "signup" && signUp) {
+        console.log("[REGISTER DEBUG] verifyEmailCode start");
         const res = await signUp.verifications.verifyEmailCode({ code: trimmed });
+        console.log("[REGISTER DEBUG] verify result error:", res?.error ?? null);
         logSignupState("after verifyEmailCode", signUp);
+        console.log("[REGISTER DEBUG] signUp status:", signUp.status);
+        console.log("[REGISTER DEBUG] createdSessionId:", signUp.createdSessionId);
         if (res?.error) {
           setError(`The code was not accepted${describe(res.error)}`);
           setIsVerifying(false);
@@ -286,6 +290,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
           if (Object.keys(patch).length > 0) {
             try {
               const upd = await signUp.update(patch as Parameters<typeof signUp.update>[0]);
+              console.log("[REGISTER DEBUG] after signUp.update");
               logSignupState("after update", signUp);
               if (upd?.error) {
                 setError(`We couldn't finish your account setup${describe(upd.error)}`);
@@ -309,11 +314,14 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
             setIsVerifying(false);
             return false;
           }
+          console.log("[REGISTER DEBUG] before setActive");
           try {
             await clerk.setActive({ session: createdSessionId });
+            console.log("[REGISTER DEBUG] after setActive");
+            console.log("[REGISTER DEBUG] active clerk session id:", clerk.session?.id ?? null);
             await new Promise((r) => setTimeout(r, 400));
           } catch (e) {
-            console.error("register setActive:", e);
+            console.error("[REGISTER DEBUG] setActive error:", e);
           }
         } else {
           logSignupState("unresolved status", signUp);
@@ -336,7 +344,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       setIsVerifying(false);
       return true;
     } catch (err) {
-      console.error("register verifyCode:", err);
+      console.error("[REGISTER DEBUG] VERIFY CODE ERROR:", err);
       setError("Something went wrong verifying the code. Please try again.");
       setIsVerifying(false);
       return false;
@@ -348,13 +356,16 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     setError("");
     setIsSubmitting(true);
     try {
+      console.log("[REGISTER DEBUG] completeRegistration start");
       let token: string | null = null;
       try {
+        console.log("[REGISTER DEBUG] before getToken");
         token = await getToken({ skipCache: true });
-      } catch {
+        console.log("[REGISTER DEBUG] token exists:", !!token);
+      } catch (getTokenErr) {
         token = null;
+        console.error("[REGISTER DEBUG] getToken threw:", getTokenErr);
       }
-      console.log("[register] active session/token result", Boolean(token));
       if (!token) {
         setIsSubmitting(false);
         setError(
@@ -364,9 +375,11 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       }
 
       const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
-      const csrfData = await csrfRes.json();
+      const csrfData = await csrfRes.json().catch(() => ({}));
       const csrfToken = csrfData.data?.csrfToken || "";
+      console.log("[REGISTER DEBUG] csrf status:", csrfRes.status, "csrf token present:", !!csrfToken);
 
+      console.log("[REGISTER DEBUG] before backend register POST");
       const res = await fetch(`${API_BASE}/auth/register/clerk`, {
         method: "POST",
         headers: {
@@ -384,24 +397,39 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
           role: "CANDIDATE",
         }),
       });
-      const data = await res.json().catch(() => ({}));
+      const rawBody = await res.text();
+      console.log("[REGISTER DEBUG] backend response:", res.status, rawBody);
+      const data: Record<string, unknown> = (() => {
+        try {
+          return rawBody ? JSON.parse(rawBody) : {};
+        } catch {
+          return {};
+        }
+      })();
 
       if (!res.ok) {
-        if (data.error?.code === "EMAIL_EXISTS") {
-          setNotice(data.error.message || "An account with this email already exists. Please sign in.");
+        const errBody = data.error as
+          | { code?: string; message?: string }
+          | undefined;
+        console.log("[REGISTER DEBUG] backend error object:", errBody ?? null);
+        if (errBody?.code === "EMAIL_EXISTS") {
+          setNotice(errBody.message || "An account with this email already exists. Please sign in.");
           setError("");
           setIsSubmitting(false);
           return;
         }
-        setError(data.error?.message || "Registration failed. Please try again.");
+        setError(errBody?.message || "Registration failed. Please try again.");
         setIsSubmitting(false);
         return;
       }
 
       // Success: persist the session artifacts + roll number (skips the
       // roll-number prompt after sign-in) and go to the dashboard.
-      if (data.data?.bindingToken) setBindingToken(data.data.bindingToken);
-      const user = data.data?.user;
+      const payload = data.data as
+        | { bindingToken?: string; user?: { name?: string; email?: string; role?: string } }
+        | undefined;
+      if (payload?.bindingToken) setBindingToken(payload.bindingToken);
+      const user = payload?.user;
       if (user?.name) setAuthCookie("student", user.name, user.email || email);
       if (rollNumber.trim()) {
         saveRollNumber("student", email.trim().toLowerCase(), rollNumber.trim());
@@ -414,7 +442,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
         role === "STUDENT" && rollNumber.trim() ? "/candidate/apply" : DASHBOARDS[role] || "/student/dashboard";
       window.location.href = dest;
     } catch (err) {
-      console.error("register complete:", err);
+      console.error("[REGISTER DEBUG] COMPLETE REGISTRATION ERROR:", err);
       setError("Unable to reach the server. Please check your connection and try again.");
       setIsSubmitting(false);
     }
