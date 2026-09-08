@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import { useSignUp, useAuth } from "@clerk/nextjs";
 import {
   HelpCircle,
   Loader2,
@@ -10,7 +11,6 @@ import {
   Hash,
   Mic,
   Phone,
-  Lock,
 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
@@ -19,7 +19,6 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { setBindingToken } from "@/lib/session-binding";
 import { setAuthCookie } from "@/lib/mock-auth";
-import { saveRollNumber } from "@/lib/roll-number";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
@@ -40,6 +39,9 @@ const PORTAL_TITLES: Record<RegisterPortal, string> = {
 };
 
 export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
+  const { signUp } = useSignUp();
+  const { getToken } = useAuth();
+
   const [selectedRole] = useState<"candidate" | "student">("candidate");
 
   const [stage, setStage] = useState<Stage>("form");
@@ -47,8 +49,6 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
   const [email, setEmail] = useState("");
   const [rollNumber, setRollNumber] = useState("");
   const [phone, setPhone] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [code, setCode] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -60,27 +60,49 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     if (!email || !email.includes("@")) return "Enter a valid email address.";
     if (!rollNumber.trim()) return "Enter your roll / enrollment number.";
     const phoneDigits = phone.replace(/[\s()-]/g, "");
-    if (!/^\+?[0-9]{10,15}$/.test(phoneDigits))
+    if (phoneDigits && !/^\+?[0-9]{10,15}$/.test(phoneDigits))
       return "Enter a valid phone number (10-15 digits).";
-    if (!password || password.length < 12)
-      return "Password must be at least 12 characters.";
-    if (password !== confirmPassword) return "Passwords do not match.";
     return null;
   };
 
-  const csrfFetch = async (url: string, opts: RequestInit = {}) => {
-    const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
-    const csrfData = await csrfRes.json().catch(() => ({}));
-    const csrfToken = csrfData.data?.csrfToken || "";
-    return fetch(url, {
-      ...opts,
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRF-Token": csrfToken,
-        ...(opts.headers as Record<string, string> || {}),
-      },
-    });
+  const bridgeToBackend = async (role: string) => {
+    try {
+      const clerkToken = await getToken();
+      if (!clerkToken) {
+        console.error("No Clerk session token available");
+        return;
+      }
+
+      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
+      const csrfData = await csrfRes.json().catch(() => ({}));
+      const csrfToken = csrfData.data?.csrfToken || "";
+
+      const res = await fetch(`${API_BASE}/auth/clerk-session`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+          "Authorization": `Bearer ${clerkToken}`,
+        },
+        body: JSON.stringify({
+          role,
+          name: fullName.trim(),
+          enrollmentNumber: rollNumber.trim(),
+          mobileNumber: phone.replace(/[\s()-]/g, ""),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data.data?.bindingToken) {
+        setBindingToken(data.data.bindingToken);
+      }
+      if (res.ok && data.data?.user) {
+        setAuthCookie(data.data.user.role || role, data.data.user.name || fullName, data.data.user.email || email);
+      }
+    } catch (err) {
+      console.error("Backend bridge failed:", err);
+    }
   };
 
   const startRegistration = async () => {
@@ -90,24 +112,25 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       setError(invalid);
       return;
     }
+    if (!signUp) return;
     setIsSending(true);
     try {
       const normalized = email.trim().toLowerCase();
-      const res = await csrfFetch(`${API_BASE}/auth/register/otp`, {
-        method: "POST",
-        body: JSON.stringify({
-          email: normalized,
-          username: rollNumber.trim(),
-          password,
-          confirmPassword,
-          role: selectedRole.toUpperCase(),
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
 
-      if (!res.ok || data.error) {
-        console.error("Register OTP send failed:", data.error || res.status);
-        setError(data.error?.message || "We couldn't send the verification code. Please try again.");
+      const { error: createError } = await signUp.create({
+        emailAddress: normalized,
+        firstName: fullName.trim().split(" ")[0] || "",
+        lastName: fullName.trim().split(" ").slice(1).join(" ") || "",
+      });
+      if (createError) {
+        setError(createError.longMessage || createError.message || "Could not start registration. Please try again.");
+        setIsSending(false);
+        return;
+      }
+
+      const { error: sendError } = await signUp.verifications.sendEmailCode();
+      if (sendError) {
+        setError(sendError.longMessage || sendError.message || "Could not send verification code. Please try again.");
         setIsSending(false);
         return;
       }
@@ -127,50 +150,34 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       setError("Enter the code you received by email.");
       return;
     }
+    if (!signUp) return;
     setIsVerifying(true);
     try {
-      const normalized = email.trim().toLowerCase();
-      const res = await csrfFetch(`${API_BASE}/auth/register/verify`, {
-        method: "POST",
-        body: JSON.stringify({
-          email: normalized,
-          otp: code.trim(),
-          username: rollNumber.trim(),
-          fullName: fullName.trim(),
-          mobileNumber: phone.replace(/[\s()-]/g, ""),
-          enrollmentNumber: rollNumber.trim(),
-          password,
-          role: selectedRole.toUpperCase(),
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
+      const { error } = await signUp.verifications.verifyEmailCode({ code: code.trim() });
 
-      if (!res.ok || data.error) {
-        console.error("Register verify failed:", data.error || res.status);
-        setError(data.error?.message || "Invalid or expired code. Please try again.");
+      if (error) {
+        if (error.code === "form_identifier_not_found") {
+          setError("This email is already registered. Please sign in instead.");
+          setIsVerifying(false);
+          return;
+        }
+        setError(error.longMessage || error.message || "Invalid or expired code. Please try again.");
         setIsVerifying(false);
         return;
       }
 
-      const result = data.data;
+      if (signUp.status === "complete") {
+        const backendRole = selectedRole.toUpperCase();
+        await bridgeToBackend(backendRole);
 
-      if (result.authenticated) {
-        if (result.bindingToken) setBindingToken(result.bindingToken);
-        if (result.user) {
-          setAuthCookie(result.user.role || selectedRole.toUpperCase(), result.user.name || fullName, result.user.email || normalized);
-        }
-        if (rollNumber.trim()) {
-          saveRollNumber("student", normalized, rollNumber.trim());
-        }
-        const role = String(result.user?.role || "STUDENT").toUpperCase();
         const dest =
-          role === "STUDENT" && rollNumber.trim() ? "/candidate/apply" : DASHBOARDS[role] || "/student/dashboard";
-        window.location.href = dest;
-        return;
-      }
+          backendRole === "STUDENT" && rollNumber.trim() ? "/candidate/apply" : DASHBOARDS[backendRole] || "/student/dashboard";
 
-      setError("Something unexpected happened. Please try again.");
-      setIsVerifying(false);
+        window.location.href = dest;
+      } else {
+        setError("Verification is not complete. Please try again.");
+        setIsVerifying(false);
+      }
     } catch (err) {
       console.error("verifyCode threw:", err);
       setError("Something went wrong verifying the code. Please try again.");
@@ -178,10 +185,15 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     }
   };
 
-  const resendCode = () => {
+  const resendCode = async () => {
     setCode("");
     setError("");
-    startRegistration();
+    if (!signUp) return;
+    try {
+      await signUp.verifications.sendEmailCode();
+    } catch (err) {
+      console.error("Resend failed:", err);
+    }
   };
 
   return (
@@ -202,7 +214,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
                 Sign in instead
               </Link>
               <Link href="/email-recovery" className="font-medium underline">
-                Can't access your email?
+                Can&apos;t access your email?
               </Link>
             </div>
           </div>
@@ -258,7 +270,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
             <div className="relative">
               <Input
                 id="register-phone"
-                label="Phone number"
+                label="Phone number (optional)"
                 type="tel"
                 autoComplete="tel"
                 placeholder="e.g. +91 98765 43210"
@@ -267,30 +279,6 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
               />
               <Phone className="w-3.5 h-3.5 text-text-muted absolute right-3 top-9" />
             </div>
-            <div className="relative">
-              <Input
-                id="register-password"
-                label="Password"
-                type="password"
-                autoComplete="new-password"
-                placeholder="At least 12 characters"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              <Lock className="w-3.5 h-3.5 text-text-muted absolute right-3 top-9" />
-            </div>
-            <Input
-              id="register-confirm-password"
-              label="Confirm password"
-              type="password"
-              autoComplete="new-password"
-              placeholder="Repeat your password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") startRegistration();
-              }}
-            />
             <Button
               onClick={startRegistration}
               disabled={isSending}
@@ -386,8 +374,8 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
             <HelpCircle className="w-3.5 h-3.5 shrink-0" />
           )}
           <span>
-            Your email is verified with a one-time code. After registering, sign in with your
-            password or a fresh code sent to this email.
+            Your email is verified with a one-time code. After registering, sign in with a fresh
+            code sent to this email.
           </span>
         </div>
       </AuthCard>

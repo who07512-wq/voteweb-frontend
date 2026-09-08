@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Poppins } from "next/font/google";
 import "./globals.css";
 import { ToastProvider } from "@/components/ui/toast-provider";
+import { ClerkProvider } from "@clerk/nextjs";
 
 const poppins = Poppins({
   variable: "--font-sans",
@@ -16,10 +17,16 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${poppins.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col font-sans">
-        <ToastProvider>{children}</ToastProvider>
-      </body>
-    </html>
+    <ClerkProvider
+      taskUrls={{
+        "reset-password": "/reset-password",
+      }}
+    >
+      <html lang="en" className={`${poppins.variable} h-full antialiased`}>
+        <body className="min-h-full flex flex-col font-sans">
+          <ToastProvider>{children}</ToastProvider>
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

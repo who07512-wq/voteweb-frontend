@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { HelpCircle, Loader2, ShieldAlert, Mail, KeyRound } from "lucide-react";
+import { useSignIn, useAuth } from "@clerk/nextjs";
+
+import { HelpCircle, ShieldAlert, Mail, KeyRound } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
 import { AuthHeader } from "@/components/auth/AuthHeader";
@@ -13,13 +15,6 @@ import { setAuthCookie } from "@/lib/mock-auth";
 import type { UserRole } from "@/lib/auth-types";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
-
-const PORTAL_ROLE_KEY: Record<string, string> = {
-  any: "",
-  student: "student",
-  cad: "cad",
-  admin: "administrator",
-};
 
 const ROLE_LABEL: Record<string, string> = {
   student: "Student",
@@ -35,6 +30,9 @@ export function RoleLoginPage({
   portal: "any" | "student" | "cad" | "admin";
   initialRole?: UserRole;
 }) {
+  const { signIn } = useSignIn();
+  const { getToken } = useAuth();
+
   const [selectedRole, setSelectedRole] = useState<UserRole>(
     initialRole ||
       (portal === "student"
@@ -49,12 +47,10 @@ export function RoleLoginPage({
   const isAdminFlow = portal === "admin" || selectedRole === "administrator";
 
   const [stage, setStage] = useState<"email" | "code">("email");
-  const [flow, setFlow] = useState<"signin" | "signup" | null>(null);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [challengeId, setChallengeId] = useState<string | null>(null);
   const [notice, setNotice] = useState(
     portal === "admin"
       ? "Administrator access only — only listed administrator emails can sign in."
@@ -68,44 +64,54 @@ export function RoleLoginPage({
   const [adminPassword, setAdminPassword] = useState("");
   const [isAdminLoggingIn, setIsAdminLoggingIn] = useState(false);
 
-  const [signInMethod, setSignInMethod] = useState<"code" | "password">("code");
-  const [password, setPassword] = useState("");
-
   useEffect(() => {
     const flagged = sessionStorage.getItem("campusvote_role_mismatch");
     if (flagged) {
       setNotice("");
-      setError(
-        "This account is not authorized for this portal. Sign in from the correct portal for your role."
-      );
+      setError("This account is not authorized for this portal. Sign in from the correct portal for your role.");
       sessionStorage.removeItem("campusvote_role_mismatch");
     }
   }, []);
 
   const setRoleFlags = () => {
-    const roleKey = selectedRole;
-    sessionStorage.setItem("campusvote_login_role", roleKey);
+    sessionStorage.setItem("campusvote_login_role", selectedRole);
     sessionStorage.removeItem("campusvote_bridged");
     sessionStorage.removeItem("campusvote_dest");
   };
 
-  const goToCallback = () => {
-    window.location.href = `${window.location.origin}/auth/clerk-callback`;
-  };
+  const bridgeToBackend = async (role: string) => {
+    try {
+      const clerkToken = await getToken();
+      if (!clerkToken) {
+        console.error("No Clerk session token available");
+        return;
+      }
 
-  const csrfFetch = async (url: string, opts: RequestInit = {}) => {
-    const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
-    const csrfData = await csrfRes.json().catch(() => ({}));
-    const csrfToken = csrfData.data?.csrfToken || "";
-    return fetch(url, {
-      ...opts,
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRF-Token": csrfToken,
-        ...(opts.headers as Record<string, string> || {}),
-      },
-    });
+      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
+      const csrfData = await csrfRes.json().catch(() => ({}));
+      const csrfToken = csrfData.data?.csrfToken || "";
+
+      const res = await fetch(`${API_BASE}/auth/clerk-session`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+          "Authorization": `Bearer ${clerkToken}`,
+        },
+        body: JSON.stringify({ role }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data.data?.bindingToken) {
+        setBindingToken(data.data.bindingToken);
+      }
+      if (res.ok && data.data?.user) {
+        setAuthCookie(data.data.user.role || role, data.data.user.name || "", data.data.user.email || email);
+      }
+    } catch (err) {
+      console.error("Backend bridge failed:", err);
+    }
   };
 
   const sendEmailCode = async () => {
@@ -114,32 +120,31 @@ export function RoleLoginPage({
       setError("Enter a valid email address to continue.");
       return;
     }
+    if (!signIn) return;
     setIsSending(true);
     try {
       setRoleFlags();
       const normalized = email.trim().toLowerCase();
-      const backendRole = (selectedRole === "administrator" ? "STUDENT" : selectedRole.toUpperCase());
 
-      const res = await csrfFetch(`${API_BASE}/auth/otp/send-login`, {
-        method: "POST",
-        body: JSON.stringify({ email: normalized, role: backendRole }),
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok || data.error) {
-        console.error("OTP send failed:", data.error || res.status);
-        setError(data.error?.message || "We couldn't send the code. Please try again.");
+      const { error: createError } = await signIn.create({ identifier: normalized });
+      if (createError) {
+        setError(createError.longMessage || createError.message || "Could not start sign-in. Please try again.");
         setIsSending(false);
         return;
       }
 
-      setChallengeId(data.data?.challengeId || null);
-      setFlow("signin");
+      const { error: sendError } = await signIn.emailCode.sendCode();
+      if (sendError) {
+        setError(sendError.longMessage || sendError.message || "Could not send verification code. Please try again.");
+        setIsSending(false);
+        return;
+      }
+
       setStage("code");
       setIsSending(false);
     } catch (err) {
       console.error("sendEmailCode threw:", err);
-      setError("We couldn't send the code. Please check your connection and try again.");
+      setError("Something went wrong. Please try again.");
       setIsSending(false);
     }
   };
@@ -150,101 +155,58 @@ export function RoleLoginPage({
       setError("Enter the code you received by email.");
       return;
     }
+    if (!signIn) return;
     setIsVerifying(true);
     try {
-      const trimmed = code.trim();
-      const normalized = email.trim().toLowerCase();
-      const backendRole = (selectedRole === "administrator" ? "STUDENT" : selectedRole.toUpperCase());
+      const { error } = await signIn.emailCode.verifyCode({ code: code.trim() });
 
-      const res = await csrfFetch(`${API_BASE}/auth/otp/verify-login`, {
-        method: "POST",
-        body: JSON.stringify({ email: normalized, otp: trimmed, role: backendRole }),
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok || data.error) {
-        console.error("OTP verify failed:", data.error || res.status);
-        const msg = data.error?.message || "Invalid or expired code. Please try again.";
-        setError(msg);
+      if (error) {
+        if (error.code === "form_identifier_not_found") {
+          sessionStorage.setItem("campusvote_pending_email", email.trim().toLowerCase());
+          sessionStorage.setItem("campusvote_pending_role", selectedRole);
+          window.location.href = "/register?from=login";
+          return;
+        }
+        setError(error.longMessage || error.message || "Invalid or expired code. Please try again.");
         setIsVerifying(false);
         return;
       }
 
-      const result = data.data;
+      if (signIn.status === "complete") {
+        const backendRole = selectedRole === "administrator" ? "STUDENT" : selectedRole.toUpperCase();
+        await bridgeToBackend(backendRole);
 
-      if (result.needsRegistration) {
-        sessionStorage.setItem("campusvote_pending_email", normalized);
-        sessionStorage.setItem("campusvote_pending_role", backendRole);
-        window.location.href = "/register?from=login";
-        return;
+        const roleKey = selectedRole === "administrator" ? "administrator" : selectedRole;
+        const dashboards: Record<string, string> = {
+          student: "/student/dashboard",
+          candidate: "/candidate/dashboard",
+          cad: "/cad/dashboard",
+          administrator: "/admin/dashboard",
+        };
+
+        sessionStorage.removeItem("campusvote_bridged");
+        sessionStorage.setItem("campusvote_dest", dashboards[roleKey] || "/student/dashboard");
+        window.location.href = dashboards[roleKey] || "/student/dashboard";
+      } else {
+        setError("Sign-in is not complete. Please try again.");
+        setIsVerifying(false);
       }
-
-      if (result.authenticated) {
-        if (result.bindingToken) setBindingToken(result.bindingToken);
-        if (result.user) setAuthCookie(result.user.role || backendRole, result.user.name || "", result.user.email || normalized);
-        goToCallback();
-        return;
-      }
-
-      setError("Something unexpected happened. Please try again.");
-      setIsVerifying(false);
     } catch (err) {
       console.error("verifyEmailCode threw:", err);
-      setError("Something went wrong verifying the code. Please try again.");
+      setError("Something went wrong. Please try again.");
       setIsVerifying(false);
     }
   };
 
-  const resendCode = () => {
+  const resendCode = async () => {
     setCode("");
     setError("");
-    sendEmailCode();
-  };
-
-  const passwordLogin = async () => {
-    setError("");
-    if (!email || !email.includes("@") || !password) {
-      setError("Enter both your email and password.");
-      return;
-    }
-    setIsSending(true);
+    if (!signIn) return;
     try {
-      const normalized = email.trim().toLowerCase();
-      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
-      const csrfData = await csrfRes.json().catch(() => ({}));
-      const csrfToken = csrfData.data?.csrfToken || "";
-
-      const res = await fetch(`${API_BASE}/auth/login`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrfToken,
-        },
-        body: JSON.stringify({ email: normalized, password, role: selectedRole.toUpperCase() }),
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok || data.error) {
-        setError(data.error?.message || "Incorrect email or password.");
-        setIsSending(false);
-        return;
-      }
-
-      if (data.data?.bindingToken) setBindingToken(data.data.bindingToken);
-      if (data.data?.user) setAuthCookie(data.data.user.role || selectedRole, data.data.user.name || "", data.data.user.email || normalized);
-      goToCallback();
+      await signIn.emailCode.sendCode();
     } catch (err) {
-      console.error("passwordLogin threw:", err);
-      setError("Unable to reach the server. Please check your connection and try again.");
-      setIsSending(false);
+      console.error("Resend failed:", err);
     }
-  };
-
-  const switchMethod = (method: "code" | "password") => {
-    setSignInMethod(method);
-    setError("");
-    setNotice("");
   };
 
   const adminLogin = async () => {
@@ -317,7 +279,7 @@ export function RoleLoginPage({
             subtitle={
               isAdminFlow
                 ? "Administrator sign in with your institute email and password"
-                : "Enter your email and sign in with a one-time code or your password"
+                : "Enter your email to receive a one-time verification code"
             }
           />
         </div>
@@ -393,109 +355,39 @@ export function RoleLoginPage({
             )}
 
             {stage === "email" ? (
-                <>
-                  <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 dark:bg-[#1d1d38] rounded-xl">
-                    <button
-                      type="button"
-                      onClick={() => switchMethod("code")}
-                      className={`px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
-                        signInMethod === "code"
-                          ? "bg-white dark:bg-[#252540] shadow-sm text-text-primary"
-                          : "text-text-muted hover:text-text-secondary"
-                      }`}
-                    >
-                      One-time code
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => switchMethod("password")}
-                      className={`px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
-                        signInMethod === "password"
-                          ? "bg-white dark:bg-[#252540] shadow-sm text-text-primary"
-                          : "text-text-muted hover:text-text-secondary"
-                      }`}
-                    >
-                      Password
-                    </button>
-                  </div>
-
-                  {signInMethod === "code" ? (
-                    <div className="space-y-1.5">
-                      <label
-                        htmlFor="email-code-email"
-                        className="text-xs font-medium text-text-secondary"
-                      >
-                        Email address
-                      </label>
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <input
-                          id="email-code-email"
-                          type="email"
-                          autoComplete="email"
-                          placeholder="you@example.com"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") sendEmailCode();
-                          }}
-                          className="flex-1 min-w-0 px-4 py-2.5 text-sm bg-white dark:bg-[#252540] border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                        />
-                        <Button
-                          onClick={sendEmailCode}
-                          disabled={isSending}
-                          isLoading={isSending}
-                          className="w-full sm:w-auto shrink-0"
-                        >
-                          {!isSending && "Send code"}
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <Input
-                        id="password-email"
-                        label="Email address"
-                        type="email"
-                        autoComplete="email"
-                        placeholder="you@example.com"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                      />
-                      <Input
-                        id="password-input"
-                        label="Password"
-                        type="password"
-                        autoComplete="current-password"
-                        placeholder="Enter your password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") passwordLogin();
-                        }}
-                      />
-                      <Button
-                        onClick={passwordLogin}
-                        disabled={isSending}
-                        isLoading={isSending}
-                        className="w-full"
-                      >
-                        {!isSending && (
-                          <>
-                            <KeyRound className="w-4 h-4" />
-                            Sign in with password
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  )}
-                </>
-              ) : (
+              <div className="space-y-1.5">
+                <label htmlFor="email-input" className="text-xs font-medium text-text-secondary">
+                  Email address
+                </label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    id="email-input"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") sendEmailCode();
+                    }}
+                    className="flex-1 min-w-0 px-4 py-2.5 text-sm bg-white dark:bg-[#252540] border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  />
+                  <Button
+                    onClick={sendEmailCode}
+                    disabled={isSending}
+                    isLoading={isSending}
+                    className="w-full sm:w-auto shrink-0"
+                  >
+                    {!isSending && "Send code"}
+                  </Button>
+                </div>
+              </div>
+            ) : (
               <>
                 <div className="p-3 bg-primary-50 border border-primary-100 rounded-lg text-sm text-primary-800 flex items-start gap-2">
                   <Mail className="w-4 h-4 mt-0.5 shrink-0" />
                   <span>
-                    We sent a one-time code to{" "}
-                    <strong>{email}</strong>. Enter it below to continue.
+                    We sent a one-time code to <strong>{email}</strong>. Enter it below to continue.
                   </span>
                 </div>
                 <Input
@@ -532,7 +424,6 @@ export function RoleLoginPage({
                     onClick={() => {
                       setStage("email");
                       setCode("");
-                      setFlow(null);
                       setError("");
                       setNotice("");
                     }}
@@ -566,7 +457,7 @@ export function RoleLoginPage({
           <span>
             {isAdminFlow
               ? "Admin sign-in is protected — only listed administrators can access this portal"
-              : "Secured — passwords and codes are verified server-side"}
+              : "Secured — verification codes are sent via email"}
           </span>
           <HelpCircle className="w-3 h-3 opacity-50 shrink-0" />
         </div>
