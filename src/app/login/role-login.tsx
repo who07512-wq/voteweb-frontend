@@ -331,12 +331,53 @@ export function RoleLoginPage({
         const res = await signUp.verifications.verifyEmailCode({
           code: trimmed,
         });
+        console.log(
+          "[LOGIN DEBUG] verifyEmailCode:",
+          res?.error ? `error: ${res.error.code}` : "ok",
+          "status:", signUp.status,
+          "missing:", signUp.missingFields,
+        );
         if (res?.error) {
           setError(`The code was not accepted${describe(res.error)}`);
           setIsVerifying(false);
           return;
         }
-        if (signUp.status === "complete") {
+
+        // Email verification succeeded.  The instance also requires
+        // first_name, last_name, and password to mark the sign-up
+        // "complete".  Fill them automatically so the open "any email"
+        // login / CAD portal auto-provisions a usable account.
+        let status = signUp.status;
+        if (status === "missing_requirements" && (signUp.missingFields?.length || 0) > 0) {
+          console.log("[LOGIN DEBUG] patching missing fields:", signUp.missingFields);
+          const patch: Record<string, string> = {};
+          for (const f of signUp.missingFields ?? []) {
+            if (f === "first_name" && !signUp.firstName) {
+              patch.firstName = email.trim().split("@")[0] || "Voter";
+            } else if (f === "last_name" && !signUp.lastName) {
+              patch.lastName = "";
+            } else if (f === "password" && !signUp.hasPassword) {
+              const rnd = Math.random().toString(36).slice(2) + "A1!";
+              patch.password = rnd;
+            }
+          }
+          if (Object.keys(patch).length > 0) {
+            try {
+              const upd = await signUp.update(patch as Parameters<typeof signUp.update>[0]);
+              console.log("[LOGIN DEBUG] after patch → status:", signUp.status, "error:", upd?.error ?? null);
+              if (upd?.error) {
+                setError(`Could not finish account setup${describe(upd.error)}`);
+                setIsVerifying(false);
+                return;
+              }
+              status = signUp.status;
+            } catch (patchErr) {
+              console.error("[LOGIN DEBUG] patch threw:", patchErr);
+            }
+          }
+        }
+
+        if (status === "complete") {
           const fin = await signUp.finalize();
           if (fin?.error) {
             setError(`Sign-in could not be completed${describe(fin.error)}`);
@@ -346,7 +387,12 @@ export function RoleLoginPage({
           goToCallback();
           return;
         }
-        setError("Verification is not complete. Please try again.");
+
+        console.log("[LOGIN DEBUG] still not complete:", status, "missing:", signUp.missingFields);
+        setError(
+          "Verification succeeded but your account needs additional details. " +
+          "Please register instead — go to the Register page and use the same email."
+        );
         setIsVerifying(false);
         return;
       }
