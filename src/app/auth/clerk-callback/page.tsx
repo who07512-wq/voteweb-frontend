@@ -7,7 +7,7 @@ import { Loader2 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
 import { hasRollNumber } from "@/lib/roll-number";
-import { getValidClerkSessionToken } from "@/lib/clerk-session-token";
+import { getClerkSessionToken } from "@/lib/clerk-session-token";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
@@ -41,7 +41,7 @@ const PORTAL_ROLES_ALLOWED: Record<string, string[]> = {
  *    user is sent back to their portal with an error.
  */
 function ClerkCallbackInner() {
-  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const { isLoaded, isSignedIn, getToken, sessionId } = useAuth();
   const { user } = useUser();
   const router = useRouter();
   const [step, setStep] = useState<BridgeStep>("checking");
@@ -109,9 +109,21 @@ function ClerkCallbackInner() {
           return;
         }
 
-        const token = await getValidClerkSessionToken(getToken);
+        const token = await getClerkSessionToken(getToken, {
+          isLoaded,
+          isSignedIn,
+          sessionId,
+          retries: 5,
+          retryDelayMs: 400,
+        });
         const roleRaw = sessionStorage.getItem("campusvote_login_role") || "student";
         const role = roleRaw.toUpperCase();
+
+        if (!token) {
+          setErrorMsg("Your sign-in was confirmed by Clerk, but no active session token was issued. Please try again.");
+          setStep("error");
+          return;
+        }
 
         const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
         const csrfData = await csrfRes.json();

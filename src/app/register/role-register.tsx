@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/Button";
 import { setBindingToken } from "@/lib/session-binding";
 import { setAuthCookie } from "@/lib/mock-auth";
 import { saveRollNumber } from "@/lib/roll-number";
-import { getValidClerkSessionToken } from "@/lib/clerk-session-token";
+import { getClerkSessionToken } from "@/lib/clerk-session-token";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
@@ -59,7 +59,7 @@ const PORTAL_TITLES: Record<RegisterPortal, string> = {
 export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
-  const { getToken, isLoaded: authLoaded, isSignedIn } = useAuth();
+  const { getToken, isLoaded: authLoaded, isSignedIn, sessionId } = useAuth();
   const clerk = useClerk();
 
   // Candidate is the only registrable role for now.
@@ -358,19 +358,23 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     setIsSubmitting(true);
     try {
       console.log("[REGISTER DEBUG] completeRegistration start");
-      let token: string;
-      try {
-        console.log("[REGISTER DEBUG] before getToken");
-        token = await getValidClerkSessionToken(getToken);
-        console.log("[REGISTER DEBUG] token present:", typeof token === "string" && token.split(".").length === 3);
-      } catch (getTokenErr) {
-        console.error("[REGISTER DEBUG] getToken/validation threw:", getTokenErr);
+      console.log("[REGISTER DEBUG] before getToken");
+      const token = await getClerkSessionToken(getToken, {
+        isLoaded: authLoaded,
+        isSignedIn,
+        sessionId,
+        retries: 5,
+        retryDelayMs: 400,
+      });
+      if (!token) {
+        console.error("[REGISTER DEBUG] getToken returned null (no active session)");
         setIsSubmitting(false);
         setError(
           "Your email was verified and your account was created, but no valid session token was issued. Please sign in to continue."
         );
         return;
       }
+      console.log("[REGISTER DEBUG] token present:", typeof token === "string" && token.split(".").length === 3);
 
       const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
       const csrfData = await csrfRes.json().catch(() => ({}));
