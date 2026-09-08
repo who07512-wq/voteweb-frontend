@@ -24,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <html lang="en" className={`${poppins.variable} h-full antialiased`}>
         <body className="min-h-full flex flex-col font-sans">
+          <div id="clerk-captcha" />
           <ToastProvider>{children}</ToastProvider>
         </body>
       </html>
