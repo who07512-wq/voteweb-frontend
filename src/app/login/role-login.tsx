@@ -118,7 +118,7 @@ export function RoleLoginPage({
     try {
       setRoleFlags();
       const normalized = email.trim().toLowerCase();
-      const backendRole = (selectedRole === "candidate" ? "STUDENT" : selectedRole === "administrator" ? "STUDENT" : selectedRole.toUpperCase());
+      const backendRole = (selectedRole === "administrator" ? "STUDENT" : selectedRole.toUpperCase());
 
       const res = await csrfFetch(`${API_BASE}/auth/otp/send-login`, {
         method: "POST",
@@ -154,7 +154,7 @@ export function RoleLoginPage({
     try {
       const trimmed = code.trim();
       const normalized = email.trim().toLowerCase();
-      const backendRole = (selectedRole === "candidate" ? "STUDENT" : selectedRole === "administrator" ? "STUDENT" : selectedRole.toUpperCase());
+      const backendRole = (selectedRole === "administrator" ? "STUDENT" : selectedRole.toUpperCase());
 
       const res = await csrfFetch(`${API_BASE}/auth/otp/verify-login`, {
         method: "POST",
