@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/Button";
 import { setBindingToken } from "@/lib/session-binding";
 import { setAuthCookie } from "@/lib/mock-auth";
 import { saveRollNumber } from "@/lib/roll-number";
+import { getValidClerkSessionToken } from "@/lib/clerk-session-token";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
@@ -357,19 +358,16 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     setIsSubmitting(true);
     try {
       console.log("[REGISTER DEBUG] completeRegistration start");
-      let token: string | null = null;
+      let token: string;
       try {
         console.log("[REGISTER DEBUG] before getToken");
-        token = await getToken({ skipCache: true });
-        console.log("[REGISTER DEBUG] token exists:", !!token);
+        token = await getValidClerkSessionToken(getToken);
+        console.log("[REGISTER DEBUG] token present:", typeof token === "string" && token.split(".").length === 3);
       } catch (getTokenErr) {
-        token = null;
-        console.error("[REGISTER DEBUG] getToken threw:", getTokenErr);
-      }
-      if (!token) {
+        console.error("[REGISTER DEBUG] getToken/validation threw:", getTokenErr);
         setIsSubmitting(false);
         setError(
-          "Your email was verified and your account was created, but no session token was issued. Please sign in to continue."
+          "Your email was verified and your account was created, but no valid session token was issued. Please sign in to continue."
         );
         return;
       }

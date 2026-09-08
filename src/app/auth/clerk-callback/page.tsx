@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
 import { hasRollNumber } from "@/lib/roll-number";
+import { getValidClerkSessionToken } from "@/lib/clerk-session-token";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
@@ -108,7 +109,7 @@ function ClerkCallbackInner() {
           return;
         }
 
-        const token = await getToken();
+        const token = await getValidClerkSessionToken(getToken);
         const roleRaw = sessionStorage.getItem("campusvote_login_role") || "student";
         const role = roleRaw.toUpperCase();
 
@@ -121,7 +122,7 @@ function ClerkCallbackInner() {
           headers: {
             "Content-Type": "application/json",
             "X-CSRF-Token": csrfToken,
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            Authorization: `Bearer ${token}`,
           },
           credentials: "include",
           body: JSON.stringify({
