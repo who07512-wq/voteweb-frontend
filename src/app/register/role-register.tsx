@@ -90,6 +90,34 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     return `${code}${message}`;
   };
 
+  // PHASE 1 diagnostics: log what the REAL ClerkJS sign-up state is at each
+  // step. Only field names and booleans — never passwords, emails, tokens,
+  // or ids.
+  const logSignupState = (
+    label: string,
+    s: typeof signUp
+  ): void => {
+    if (!s) {
+      console.log(`[register] ${label}: no sign-up resource`);
+      return;
+    }
+    console.log(
+      `[register] ${label}:`,
+      JSON.stringify({
+        status: s.status,
+        createdSessionId: Boolean(s.createdSessionId),
+        createdUserId: Boolean(s.createdUserId),
+        hasPassword: s.hasPassword,
+        firstNameSet: Boolean(s.firstName),
+        lastNameSet: Boolean(s.lastName),
+        emailAddressSet: Boolean(s.emailAddress),
+        missingFields: s.missingFields ?? [],
+        unverifiedFields: s.unverifiedFields ?? [],
+        requiredFields: s.requiredFields ?? [],
+      })
+    );
+  };
+
   const isNotFoundError = (err: unknown): boolean => {
     const anyErr = err as { code?: string; message?: string } | null;
     const code = String(anyErr?.code || "");
@@ -185,12 +213,14 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
         lastName,
         password,
       });
+      logSignupState("after create", signUp);
       if (up?.error) {
         setError(`We couldn't start registration for that email${describe(up.error)}`);
         setIsSending(false);
         return;
       }
       const sent = await signUp.verifications.sendEmailCode();
+      logSignupState("after sendEmailCode", signUp);
       if (sent?.error) {
         setError(`We couldn't send the code to that email${describe(sent.error)}`);
         setIsSending(false);
@@ -230,43 +260,70 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
 
       if (flow === "signup" && signUp) {
         const res = await signUp.verifications.verifyEmailCode({ code: trimmed });
+        logSignupState("after verifyEmailCode", signUp);
         if (res?.error) {
           setError(`The code was not accepted${describe(res.error)}`);
           setIsVerifying(false);
           return false;
         }
-        if (signUp.status === "complete") {
-          const fin = await signUp.finalize();
-          if (fin?.error) {
-            setError(`Verification could not be completed${describe(fin.error)}`);
-            setIsVerifying(false);
-            return false;
+
+        // The instance only requires first/last name + password alongside the
+        // verified email, so a successful code normally flips status to
+        // "complete". If it is still "missing_requirements", push in anything
+        // that did not ride the original create() and re-check — never report
+        // a fake "verification session expired".
+        let status = signUp.status;
+        if (status === "missing_requirements" && (signUp.missingFields?.length || 0) > 0) {
+          logSignupState("missing_requirements: satisfying fields", signUp);
+          const parts = fullName.trim().split(/\s+/);
+          const firstName = parts.slice(0, -1).join(" ") || parts[0];
+          const lastName = parts[parts.length - 1] || "";
+          const patch: Record<string, string> = {};
+          for (const f of signUp.missingFields ?? []) {
+            if (f === "first_name" && !signUp.firstName) patch.firstName = firstName;
+            else if (f === "last_name" && !signUp.lastName) patch.lastName = lastName;
+            else if (f === "password" && !signUp.hasPassword) patch.password = password;
           }
-          console.log("[register] sign-up status:", signUp.status);
-          // signUp.finalize() creates the session but does NOT automatically
-          // make it active (sign-in finalize does). Without this, getToken()
-          // below returns null → the confusing "session expired" error.
-          // Pull the created session id from every place ClerkJS may expose
-          // it, activate it explicitly, and force a full client re-sync.
-          const createdSessionId =
-            (fin as { createdSessionId?: string } | null)?.createdSessionId ||
-            signUp.createdSessionId ||
-            (fin as { session?: { id?: string } } | null)?.session?.id;
-          console.log("[register] createdSessionId:", Boolean(createdSessionId));
+          if (Object.keys(patch).length > 0) {
+            try {
+              const upd = await signUp.update(patch as Parameters<typeof signUp.update>[0]);
+              logSignupState("after update(missing fields)", signUp);
+              if (upd?.error) {
+                setError(`We couldn't finish your account setup${describe(upd.error)}`);
+                setIsVerifying(false);
+                return false;
+              }
+              status = signUp.status;
+            } catch (err) {
+              console.error("register update missing fields:", err);
+            }
+          }
+        }
+
+        if (status === "complete") {
+          logSignupState("complete branch", signUp);
+          // signUp.finalize() exists but ONLY works when createdSessionId is
+          // already set, and then it just calls setActive with that id — so on
+          // a complete sign-up it is redundant. Activate the created session
+          // directly and give Clerk a moment to propagate it before getToken().
+          const createdSessionId = signUp.createdSessionId;
           if (createdSessionId) {
             try {
               await clerk.setActive({ session: createdSessionId });
-              // Give Clerk a moment to propagate the new session to the
-              // client before getToken() runs (no public "load()" in ClerkJS 6).
               await new Promise((r) => setTimeout(r, 400));
             } catch (e) {
               console.error("register setActive:", e);
             }
           }
         } else {
-          // Should not happen now that password + name ride the sign-up, but
-          // surface the real state instead of a confusing "expired" message.
-          setError("Your email is verified, but the account setup needs more details. Please start again.");
+          logSignupState("unresolved status", signUp);
+          if (status === "abandoned") {
+            setError("This registration expired and cannot be completed. Please start again.");
+          } else if ((signUp.missingFields ?? []).includes("email_address")) {
+            setError("Your email could not be verified. Request a fresh code and try again.");
+          } else {
+            setError("Your email is verified, but the account setup still needs a few details. Please go back and register again.");
+          }
           setIsVerifying(false);
           return false;
         }
