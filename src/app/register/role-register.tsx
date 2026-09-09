@@ -42,7 +42,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
   // login so the user can sign out properly before registering a new account.
   useEffect(() => {
     if (isSignedIn) {
-      window.location.href = "/login";
+      window.location.href = getDashboardRoute("STUDENT");
     }
   }, [isSignedIn]);
 

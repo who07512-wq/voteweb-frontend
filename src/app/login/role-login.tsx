@@ -74,10 +74,9 @@ export function RoleLoginPage({
     }
   }, []);
 
-  // If already signed in (stale session), redirect to dashboard.
-  // Don't redirect from the login page itself — let the user sign out first.
+  // If already signed in, redirect away from login page to dashboard.
   useEffect(() => {
-    if (isSignedIn && window.location.pathname !== "/login" && !window.location.pathname.startsWith("/login/")) {
+    if (isSignedIn) {
       const roleKey = selectedRole === "administrator" ? "ADMIN" : selectedRole.toUpperCase();
       const dest = getDashboardRoute(roleKey);
       window.location.href = dest;
