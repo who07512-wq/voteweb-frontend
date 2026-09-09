@@ -25,6 +25,11 @@ class ApiClient {
       });
       const data = await res.json();
       this.csrfToken = (data.data?.csrfToken as string) || '';
+      // Also set cookie client-side so backend can validate X-CSRF-Token header
+      // (the proxy may not forward Set-Cookie from the backend).
+      if (this.csrfToken && typeof document !== 'undefined') {
+        document.cookie = `cv_csrf=${encodeURIComponent(this.csrfToken)}; path=/; SameSite=Lax; max-age=3600`;
+      }
       return this.csrfToken;
     } catch (error) {
       console.error('Failed to get CSRF token:', error);
