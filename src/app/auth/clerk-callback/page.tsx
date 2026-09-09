@@ -1,70 +1,123 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 import { Loader2 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
-import { hasRollNumber } from "@/lib/roll-number";
 import { getDashboardRoute } from "@/lib/dashboard-route";
 
-/**
- * Post-login callback page. After OTP verification, the login/register pages
- * set the binding token and auth cookie, then redirect here. This page reads
- * the role from the auth cookie and routes to the correct dashboard.
- */
-export default function ClerkCallbackPage() {
+function CallbackContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const { getToken, isSignedIn } = useAuth();
   const [step, setStep] = useState<"routing" | "error">("routing");
   const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
-    try {
-      const authCookie = document.cookie.match(/campusvote_auth=([^;]+)/);
-      if (!authCookie) {
-        setErrorMsg("No active session found. Please sign in again.");
+    const run = async () => {
+      try {
+        // 1. If the OTP flow already set the auth cookie, route directly.
+        const authCookie = document.cookie.match(/campusvote_auth=([^;]+)/);
+        if (authCookie) {
+          const auth = JSON.parse(decodeURIComponent(authCookie[1]));
+          const role = String(auth.role || "STUDENT").toUpperCase();
+          const dest = getDashboardRoute(role);
+          sessionStorage.removeItem("campusvote_login_role");
+          sessionStorage.removeItem("campusvote_pending_email");
+          sessionStorage.removeItem("campusvote_pending_role");
+          sessionStorage.removeItem("campusvote_dest");
+          setTimeout(() => router.replace(dest), 300);
+          return;
+        }
+
+        // 2. OAuth flow: get Clerk session token and bridge to backend.
+        if (!isSignedIn || !getToken) {
+          setErrorMsg("No active Clerk session. Please sign in again.");
+          setStep("error");
+          return;
+        }
+
+        const token = await getToken();
+        if (!token) {
+          setErrorMsg("Could not retrieve session token. Please sign in again.");
+          setStep("error");
+          return;
+        }
+
+        const backendUrl = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
+
+        // First fetch CSRF token
+        const csrfRes = await fetch(`${backendUrl}/auth/csrf`, {
+          credentials: "include",
+        });
+        const csrfData = await csrfRes.json().catch(() => ({}));
+        const csrfToken = csrfData.data?.csrfToken || "";
+
+        const res = await fetch(`${backendUrl}/auth/clerk-session`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrfToken,
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({}),
+        });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const msg = typeof data.error === "string"
+            ? data.error
+            : data.error?.message || "Failed to create session. Please try again.";
+          setErrorMsg(msg);
+          setStep("error");
+          return;
+        }
+
+        const data = await res.json();
+        const user = data.data?.user || {};
+        const role = String(user.role || "STUDENT").toUpperCase();
+        const email = user.email || "";
+
+        // Store role in cookie for callback and other pages
+        document.cookie = `campusvote_auth=${encodeURIComponent(JSON.stringify({ role, email }))}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
+
+        // Check the redirect param
+        const redirectParam = searchParams.get("redirect");
+
+        let dest: string;
+
+        if (redirectParam === "/register") {
+          // OAuth from register page: user is new, go to info form
+          dest = "/register?stage=info";
+        } else {
+          dest = getDashboardRoute(role);
+
+          // Students on candidate portal go to application form
+          const loginRole = sessionStorage.getItem("campusvote_login_role") || "student";
+          if (role === "STUDENT" && loginRole === "candidate") {
+            dest = "/candidate/apply";
+          }
+        }
+
+        // Clean up session storage
+        sessionStorage.removeItem("campusvote_login_role");
+        sessionStorage.removeItem("campusvote_pending_email");
+        sessionStorage.removeItem("campusvote_pending_role");
+        sessionStorage.removeItem("campusvote_dest");
+
+        setTimeout(() => router.replace(dest), 300);
+      } catch (err) {
+        console.error("Callback routing failed:", err);
+        setErrorMsg("Something went wrong. Please try signing in again.");
         setStep("error");
-        return;
       }
+    };
 
-      const auth = JSON.parse(decodeURIComponent(authCookie[1]));
-      const role = String(auth.role || "STUDENT").toUpperCase();
-      const email = auth.email || "";
-
-      let dest = getDashboardRoute(role);
-
-      // Students on candidate portal go to application form
-      const loginRole = sessionStorage.getItem("campusvote_login_role") || "student";
-      if (role === "STUDENT" && loginRole === "candidate") {
-        dest = "/candidate/apply";
-      }
-
-      // Check if roll number is needed
-      const rollRole = loginRole === "candidate" ? "candidate" : "student";
-      const otherRollRole = rollRole === "candidate" ? "student" : "candidate";
-      const needsRoll =
-        (role === "STUDENT" || role === "CANDIDATE") &&
-        email &&
-        !hasRollNumber(rollRole, email) &&
-        !hasRollNumber(otherRollRole, email);
-
-      if (needsRoll && email) {
-        dest = `/roll-number?role=${rollRole}&email=${encodeURIComponent(email)}&next=${encodeURIComponent(dest)}`;
-      }
-
-      // Clean up
-      sessionStorage.removeItem("campusvote_login_role");
-      sessionStorage.removeItem("campusvote_pending_email");
-      sessionStorage.removeItem("campusvote_pending_role");
-      sessionStorage.removeItem("campusvote_dest");
-
-      setTimeout(() => router.replace(dest), 300);
-    } catch (err) {
-      console.error("Callback routing failed:", err);
-      setErrorMsg("Something went wrong. Please try signing in again.");
-      setStep("error");
-    }
-  }, [router]);
+    run();
+  }, [router, getToken, isSignedIn, searchParams]);
 
   return (
     <AuthLayout>
@@ -98,5 +151,31 @@ export default function ClerkCallbackPage() {
         </div>
       </AuthCard>
     </AuthLayout>
+  );
+}
+
+/**
+ * Post-login callback page. Handles both:
+ * 1. OTP flow: cookie already set by login/register pages
+ * 2. OAuth flow: get Clerk session token, bridge to backend, then route
+ */
+export default function ClerkCallbackPage() {
+  return (
+    <Suspense
+      fallback={
+        <AuthLayout>
+          <AuthCard>
+            <div className="text-center py-8">
+              <Loader2 className="w-10 h-10 animate-spin text-primary-600 mx-auto mb-4" />
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">
+                Loading...
+              </h2>
+            </div>
+          </AuthCard>
+        </AuthLayout>
+      }
+    >
+      <CallbackContent />
+    </Suspense>
   );
 }

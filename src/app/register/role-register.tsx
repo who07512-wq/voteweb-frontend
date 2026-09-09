@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSignUp, useAuth, useClerk } from "@clerk/nextjs";
+import { useSignUp, useAuth } from "@clerk/nextjs";
 import {
   HelpCircle,
   Loader2,
@@ -35,7 +35,6 @@ const PORTAL_TITLES: Record<RegisterPortal, string> = {
 export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
   const { signUp } = useSignUp();
   const { getToken, isSignedIn } = useAuth();
-  const clerk = useClerk();
 
   const [selectedRole] = useState<"candidate" | "student">("candidate");
 
@@ -334,8 +333,16 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
 
             <button
               type="button"
-              onClick={() => {
-                (signUp as any).authenticateWithRedirect({ strategy: "oauth_google" });
+              onClick={async () => {
+                if (!signUp) return;
+                const { error } = await signUp.sso({
+                  strategy: "oauth_google",
+                  redirectUrl: `${window.location.origin}/auth/clerk-callback?redirect=/register`,
+                  redirectCallbackUrl: `${window.location.origin}/auth/clerk-callback?redirect=/register`,
+                });
+                if (error) {
+                  setError(error.message || "Google sign-up failed. Please try again.");
+                }
               }}
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-border rounded-xl text-sm font-medium text-text-primary bg-white dark:bg-[#252540] hover:bg-gray-50 dark:hover:bg-[#2a2a4a] transition"
             >

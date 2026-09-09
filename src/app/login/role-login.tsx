@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useSignIn, useAuth, useClerk } from "@clerk/nextjs";
+import { useSignIn, useAuth } from "@clerk/nextjs";
 
 import { HelpCircle, ShieldAlert, Mail, KeyRound } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
@@ -33,7 +33,6 @@ export function RoleLoginPage({
 }) {
   const { signIn } = useSignIn();
   const { getToken, isSignedIn } = useAuth();
-  const clerk = useClerk();
 
   const [selectedRole, setSelectedRole] = useState<UserRole>(
     initialRole ||
@@ -501,8 +500,16 @@ export function RoleLoginPage({
 
                 <button
                   type="button"
-                  onClick={() => {
-                    (signIn as any).authenticateWithRedirect({ strategy: "oauth_google" });
+                  onClick={async () => {
+                    if (!signIn) return;
+                    const { error } = await signIn.sso({
+                      strategy: "oauth_google",
+                      redirectUrl: `${window.location.origin}/auth/clerk-callback?redirect=/auth/clerk-callback`,
+                      redirectCallbackUrl: `${window.location.origin}/auth/clerk-callback?redirect=/auth/clerk-callback`,
+                    });
+                    if (error) {
+                      setError(error.message || "Google sign-in failed. Please try again.");
+                    }
                   }}
                   className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-border rounded-xl text-sm font-medium text-text-primary bg-white dark:bg-[#252540] hover:bg-gray-50 dark:hover:bg-[#2a2a4a] transition"
                 >
