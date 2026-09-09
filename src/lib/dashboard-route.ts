@@ -16,11 +16,11 @@ export function getDashboardRoute(role: string): string {
   }
 
   const routes: Record<string, string> = {
-    STUDENT: "/student/dashboard",
+    STUDENT: "/candidate/status",
     CANDIDATE: "/candidate/dashboard",
     ADMIN: "/admin/dashboard",
     CAD: "/cad/dashboard",
   };
 
-  return routes[normalized] || (isStudentPortalClosed ? "/portal-closed" : "/student/dashboard");
+  return routes[normalized] || (isStudentPortalClosed ? "/portal-closed" : "/candidate/status");
 }
