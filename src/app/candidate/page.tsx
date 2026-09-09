@@ -19,12 +19,22 @@ export default function CandidateIndexPage() {
     let cancelled = false;
     (async () => {
       try {
+        // Check for stale signed-out flag
+        try {
+          const justSignedOut = sessionStorage.getItem("campusvote_signed_out");
+          if (justSignedOut) {
+            sessionStorage.removeItem("campusvote_signed_out");
+            if (!cancelled) router.replace("/login?role=candidate");
+            return;
+          }
+        } catch { /* private mode */ }
+
         const me = await getMe();
         if (cancelled) return;
         if (me.authenticated && me.user) {
           const role = String(me.user.role || "").toUpperCase();
           if (role === "STUDENT" || role === "CANDIDATE") {
-            router.replace("/candidate/dashboard");
+            router.replace("/candidate/status");
             return;
           }
           // Admin/CAD land on their own dashboards instead

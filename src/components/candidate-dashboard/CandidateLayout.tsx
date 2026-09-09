@@ -40,7 +40,7 @@ export const CandidateLayout: React.FC<CandidateLayoutProps> = ({
   candidateId,
 }) => {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [status, setStatus] = useState<ApplicationStatus>("approved");
+  const [status, setStatus] = useState<ApplicationStatus>("draft");
   const [checking, setChecking] = useState(true);
   const [userName, setUserName] = useState(candidateName || "Candidate");
   const [userId, setUserId] = useState(candidateId || "");

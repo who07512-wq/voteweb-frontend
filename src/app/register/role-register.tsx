@@ -41,9 +41,21 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
   // If already signed in (stale session from a previous login), redirect to
   // login so the user can sign out properly before registering a new account.
   useEffect(() => {
-    if (isSignedIn) {
-      window.location.href = getDashboardRoute("STUDENT");
-    }
+    if (!isSignedIn) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getMe } = await import("@/lib/api/v1");
+        const me = await getMe();
+        if (cancelled) return;
+        if (me.authenticated && me.user) {
+          window.location.href = getDashboardRoute(me.user.role);
+        }
+      } catch {
+        // Not authenticated server-side — stay on register.
+      }
+    })();
+    return () => { cancelled = true; };
   }, [isSignedIn]);
 
   const [stage, setStage] = useState<Stage>("email");

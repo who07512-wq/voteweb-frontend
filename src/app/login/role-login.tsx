@@ -74,14 +74,25 @@ export function RoleLoginPage({
     }
   }, []);
 
-  // If already signed in, redirect away from login page to dashboard.
+  // If already signed in, redirect to actual dashboard based on backend role.
   useEffect(() => {
-    if (isSignedIn) {
-      const roleKey = selectedRole === "administrator" ? "ADMIN" : selectedRole.toUpperCase();
-      const dest = getDashboardRoute(roleKey);
-      window.location.href = dest;
-    }
-  }, [isSignedIn, selectedRole]);
+    if (!isSignedIn) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getMe } = await import("@/lib/api/v1");
+        const me = await getMe();
+        if (cancelled) return;
+        if (me.authenticated && me.user) {
+          const dest = getDashboardRoute(me.user.role);
+          window.location.href = dest;
+        }
+      } catch {
+        // Not authenticated server-side — stay on login.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isSignedIn]);
 
   const setRoleFlags = () => {
     sessionStorage.setItem("campusvote_login_role", selectedRole);
@@ -93,8 +104,7 @@ export function RoleLoginPage({
     try {
       const clerkToken = await getToken();
       if (!clerkToken) {
-        console.error("No Clerk session token available");
-        return;
+        throw new Error("No Clerk session token available. Please try again.");
       }
 
       const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
@@ -232,9 +242,11 @@ export function RoleLoginPage({
         return;
       }
 
-      // Email code verified — proceed regardless of signIn.status.
-      // Clerk may report an intermediate status due to bot protection
-      // or missing fields; the code itself is verified, so continue.
+      // Email code verified — check status before bridging.
+      if (signIn.status !== "complete") {
+        // Status may be intermediate; try to get token anyway.
+        // If getToken fails, bridgeToBackend will throw.
+      }
       const backendRole = selectedRole === "administrator" ? "STUDENT" : selectedRole.toUpperCase();
       await bridgeToBackend(backendRole);
 
@@ -503,6 +515,7 @@ export function RoleLoginPage({
                   type="button"
                   onClick={async () => {
                     if (!signIn) return;
+                    setRoleFlags();
                     const { error } = await signIn.sso({
                       strategy: "oauth_google",
                       redirectUrl: `${window.location.origin}/auth/clerk-callback?redirect=/auth/clerk-callback`,

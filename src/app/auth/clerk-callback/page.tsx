@@ -6,6 +6,7 @@ import { useAuth, useUser } from "@clerk/nextjs";
 import { Loader2 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
+import { setAuthCookie } from "@/lib/mock-auth";
 import { getDashboardRoute } from "@/lib/dashboard-route";
 
 function CallbackContent() {
@@ -15,6 +16,7 @@ function CallbackContent() {
   const { user } = useUser();
   const [step, setStep] = useState<"routing" | "error">("routing");
   const [errorMsg, setErrorMsg] = useState("");
+  const redirect = searchParams.get("redirect") || "";
 
   useEffect(() => {
     const run = async () => {
@@ -84,15 +86,15 @@ function CallbackContent() {
         const role = String(backendUser.role || "STUDENT").toUpperCase();
         const email = backendUser.email || "";
 
-        // Store role in cookie for callback and other pages
-        document.cookie = `campusvote_auth=${encodeURIComponent(JSON.stringify({ role, email }))}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
+        const name = user?.fullName || user?.firstName || user?.username || "";
+
+        // Store role in cookie for callback and other pages (same format as login page)
+        setAuthCookie(role as any, name, email);
 
         // Check the redirect param
-        const redirectParam = searchParams.get("redirect");
-
         let dest: string;
 
-        if (redirectParam === "/register") {
+        if (redirect === "/register") {
           // OAuth from register page: user is new, go to info form
           dest = "/register?stage=info";
         } else {
@@ -120,7 +122,7 @@ function CallbackContent() {
     };
 
     run();
-  }, [router, getToken, isSignedIn, searchParams]);
+  }, [router, getToken, isSignedIn, redirect]);
 
   return (
     <AuthLayout>
