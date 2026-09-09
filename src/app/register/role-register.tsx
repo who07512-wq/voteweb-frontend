@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSignUp, useAuth } from "@clerk/nextjs";
 import {
   HelpCircle,
   Loader2,
@@ -20,6 +19,7 @@ import { Button } from "@/components/ui/Button";
 import { setBindingToken } from "@/lib/session-binding";
 import { setAuthCookie } from "@/lib/mock-auth";
 import { getDashboardRoute } from "@/lib/dashboard-route";
+import { getMe } from "@/lib/api/v1";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
@@ -33,19 +33,14 @@ const PORTAL_TITLES: Record<RegisterPortal, string> = {
 };
 
 export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
-  const { signUp } = useSignUp();
-  const { getToken, isSignedIn } = useAuth();
-
   const [selectedRole] = useState<"candidate" | "student">("candidate");
 
   // If already signed in (stale session from a previous login), redirect to
   // login so the user can sign out properly before registering a new account.
   useEffect(() => {
-    if (!isSignedIn) return;
     let cancelled = false;
     (async () => {
       try {
-        const { getMe } = await import("@/lib/api/v1");
         const me = await getMe();
         if (cancelled) return;
         if (me.authenticated && me.user) {
@@ -56,7 +51,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [isSignedIn]);
+  }, []);
 
   const [stage, setStage] = useState<Stage>("email");
   const [fullName, setFullName] = useState("");
@@ -70,47 +65,15 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
-  const bridgeToBackend = async (role: string) => {
+  const fetchCsrfToken = async (): Promise<string> => {
     try {
-      const clerkToken = await getToken();
-      if (!clerkToken) {
-        console.error("No Clerk session token available");
-        return;
-      }
-
-      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
-      const csrfData = await csrfRes.json().catch(() => ({}));
-      const csrfToken = csrfData.data?.csrfToken || "";
-
-      const res = await fetch(`${API_BASE}/auth/clerk-session`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrfToken,
-          "Authorization": `Bearer ${clerkToken}`,
-        },
-        body: JSON.stringify({
-          role,
-          name: fullName.trim(),
-          enrollmentNumber: rollNumber.trim(),
-          mobileNumber: phone.replace(/[\s()-]/g, ""),
-        }),
-      });
+      const res = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
       const data = await res.json().catch(() => ({}));
-
-      if (res.ok && data.data?.bindingToken) {
-        setBindingToken(data.data.bindingToken);
-      }
-      if (res.ok && data.data?.user) {
-        setAuthCookie(data.data.user.role || role, data.data.user.name || fullName, data.data.user.email || email);
-      }
-    } catch (err) {
-      console.error("Backend bridge failed:", err);
+      return data.data?.csrfToken || "";
+    } catch {
+      return "";
     }
   };
-
-  const isTestEmail = (e: string) => e.toLowerCase().includes("+clerk_test");
 
   const sendCode = async () => {
     setError("");
@@ -118,64 +81,36 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       setError("Enter a valid email address.");
       return;
     }
-    if (!signUp) return;
     setIsSending(true);
     try {
       const normalized = email.trim().toLowerCase();
+      const csrfToken = await fetchCsrfToken();
 
-      // If there's a stale sign-up from a previous attempt, Clerk may
-      // reject create() or sendEmailCode() with a 400. Try to recover
-      // by setting the email address again to reset the sign-up state.
-      let createError: { longMessage?: string; message?: string; code?: string } | null = null;
-      const createResult = await signUp.create({
-        emailAddress: normalized,
+      const res = await fetch(`${API_BASE}/auth/register/otp`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({
+          email: normalized,
+          username: normalized.split("@")[0],
+          password: "TempPassword123!",
+          confirmPassword: "TempPassword123!",
+          role: selectedRole.toUpperCase(),
+        }),
       });
-      createError = createResult.error || null;
+      const data = await res.json().catch(() => ({}));
 
-      if (createError) {
-        if (createError.code === "form_identifier_exists") {
+      if (!res.ok) {
+        if (data.error?.message?.includes("already") || data.error?.message?.includes("exists")) {
           setError("This email is already registered. Please sign in instead.");
-          setIsSending(false);
-          return;
+        } else {
+          setError(data.error?.message || "Could not send verification code. Please try again.");
         }
-        // For other create errors, try to reset by setting email again.
-        try {
-          await signUp.update({ emailAddress: normalized });
-          createError = null;
-        } catch {
-          setError(createError?.longMessage || createError?.message || "Could not start registration. Please try again.");
-          setIsSending(false);
-          return;
-        }
-      }
-
-      let { error: sendError } = await signUp.verifications.sendEmailCode();
-
-      if (sendError) {
-        try {
-          await signUp.update({ emailAddress: normalized });
-          const retry = await signUp.verifications.sendEmailCode();
-          if (retry.error) {
-            setError(retry.error.longMessage || retry.error.message || "Could not send verification code. Please try again.");
-            setIsSending(false);
-            return;
-          }
-        } catch {
-          setError(sendError.longMessage || sendError.message || "Could not send verification code. Please try again.");
-          setIsSending(false);
-          return;
-        }
-      }
-
-      // For test emails (+clerk_test), no email is sent — auto-verify with 424242.
-      if (isTestEmail(email)) {
-        const { error: verifyErr } = await signUp.verifications.verifyEmailCode({ code: "424242" });
-        if (!verifyErr) {
-          setStage("info");
-          setIsSending(false);
-          return;
-        }
-        // If auto-verify fails, fall through to manual code entry.
+        setIsSending(false);
+        return;
       }
 
       setStage("code");
@@ -193,27 +128,46 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       setError("Enter the code you received by email.");
       return;
     }
-    if (!signUp) return;
     setIsVerifying(true);
     try {
-      const { error } = await signUp.verifications.verifyEmailCode({ code: code.trim() });
+      const normalized = email.trim().toLowerCase();
+      const csrfToken = await fetchCsrfToken();
 
-      if (error) {
-        if (error.code === "form_identifier_not_found") {
-          setError("This email is already registered. Please sign in instead.");
-          setIsVerifying(false);
-          return;
-        }
-        setError(error.longMessage || error.message || "Invalid or expired code. Please try again.");
+      const res = await fetch(`${API_BASE}/auth/register/verify`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({
+          email: normalized,
+          otp: code.trim(),
+          username: normalized.split("@")[0],
+          fullName: fullName.trim() || normalized.split("@")[0],
+          password: "TempPassword123!",
+          role: selectedRole.toUpperCase(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setError(data.error?.message || "Invalid or expired code. Please try again.");
         setIsVerifying(false);
         return;
       }
 
-      // Email code verified successfully — proceed to info form regardless
-      // of signUp.status. Clerk may show "complete" or an intermediate status
-      // depending on required fields; we collect the remaining info ourselves.
-      setStage("info");
-      setIsVerifying(false);
+      // Registration verified — store session and redirect
+      if (data.data?.bindingToken) {
+        setBindingToken(data.data.bindingToken);
+      }
+      if (data.data?.user) {
+        const user = data.data.user;
+        setAuthCookie(selectedRole as any, user.name || user.fullName || normalized.split("@")[0], user.email || normalized);
+      }
+
+      const dest = getDashboardRoute(selectedRole.toUpperCase());
+      window.location.href = dest;
     } catch (err) {
       console.error("verifyCode threw:", err);
       setError("Something went wrong. Please try again.");
@@ -221,45 +175,30 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     }
   };
 
-  const submitInfo = async () => {
-    setError("");
-    if (fullName.trim().length < 2) {
-      setError("Enter your full name.");
-      return;
-    }
-    if (!rollNumber.trim()) {
-      setError("Enter your roll / enrollment number.");
-      return;
-    }
-    const phoneDigits = phone.replace(/[\s()-]/g, "");
-    if (phoneDigits && !/^\+?[0-9]{10,15}$/.test(phoneDigits)) {
-      setError("Enter a valid phone number (10-15 digits).");
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const backendRole = selectedRole.toUpperCase();
-      await bridgeToBackend(backendRole);
-
-      const dest = getDashboardRoute(backendRole);
-
-      window.location.href = dest;
-    } catch (err) {
-      console.error("submitInfo threw:", err);
-      setError("Something went wrong. Please try again.");
-      setIsSubmitting(false);
-    }
-  };
-
   const resendCode = async () => {
     setCode("");
     setError("");
-    if (!signUp) return;
+    setIsSending(true);
     try {
-      await signUp.verifications.sendEmailCode();
+      const normalized = email.trim().toLowerCase();
+      const csrfToken = await fetchCsrfToken();
+
+      await fetch(`${API_BASE}/auth/otp/send-login`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({
+          email: normalized,
+          role: selectedRole.toUpperCase(),
+        }),
+      });
     } catch (err) {
       console.error("Resend failed:", err);
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -333,34 +272,6 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
               </div>
             </div>
 
-            <div className="relative my-2">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-border" />
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="bg-white dark:bg-[#1a1a2e] px-2 text-text-muted">or continue with</span>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={async () => {
-                if (!signUp) return;
-                const { error } = await signUp.sso({
-                  strategy: "oauth_google",
-                  redirectUrl: "/auth/clerk-callback",
-                  redirectCallbackUrl: "/auth/clerk-callback?step=bridge&redirect=/register",
-                });
-                if (error) {
-                  setError(error.message || "Google sign-up failed. Please try again.");
-                }
-              }}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-border rounded-xl text-sm font-medium text-text-primary bg-white dark:bg-[#252540] hover:bg-gray-50 dark:hover:bg-[#2a2a4a] transition"
-            >
-              <svg className="w-5 h-5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-              Sign up with Google
-            </button>
-
             <p className="text-xs text-text-secondary text-center">
               Already have an account?{" "}
               <Link href="/login" className="text-primary-600 hover:text-primary-700 font-medium">
@@ -404,9 +315,10 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
               <button
                 type="button"
                 onClick={resendCode}
+                disabled={isSending}
                 className="text-primary-600 hover:text-primary-700 font-medium"
               >
-                Resend code
+                {isSending ? "Sending..." : "Resend code"}
               </button>
               <button
                 type="button"
@@ -423,68 +335,6 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
           </div>
         )}
 
-        {/* Stage 3: Info Form (after email verified) */}
-        {stage === "info" && (
-          <div className="space-y-4">
-            <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800 flex items-start gap-2">
-              <Mail className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>
-                <strong>{email}</strong> verified. Now complete your profile.
-              </span>
-            </div>
-
-            <Input
-              id="register-name"
-              label="Full name"
-              type="text"
-              autoComplete="name"
-              placeholder="e.g. Rahul Sharma"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submitInfo();
-              }}
-            />
-            <div className="relative">
-              <Input
-                id="register-roll"
-                label="Roll / enrollment number"
-                type="text"
-                autoComplete="off"
-                placeholder="e.g. 0221IT211045"
-                value={rollNumber}
-                onChange={(e) => setRollNumber(e.target.value)}
-              />
-              <Hash className="w-3.5 h-3.5 text-text-muted absolute right-3 top-9" />
-            </div>
-            <div className="relative">
-              <Input
-                id="register-phone"
-                label="Phone number (optional)"
-                type="tel"
-                autoComplete="tel"
-                placeholder="e.g. +91 98765 43210"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
-              <Phone className="w-3.5 h-3.5 text-text-muted absolute right-3 top-9" />
-            </div>
-            <Button
-              onClick={submitInfo}
-              disabled={isSubmitting}
-              isLoading={isSubmitting}
-              className="w-full"
-            >
-              {!isSubmitting && (
-                <>
-                  <UserPlus className="w-4 h-4" />
-                  Complete Registration
-                </>
-              )}
-            </Button>
-          </div>
-        )}
-
         <div className="mt-6 pt-4 border-t border-border text-xs text-text-secondary text-center flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 leading-relaxed px-1">
           {isVerifying ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
@@ -494,9 +344,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
           <span>
             {stage === "email"
               ? "Enter your email to receive a one-time verification code"
-              : stage === "code"
-                ? "Enter the 6-digit code sent to your email"
-                : "Your email is verified — complete your profile to finish"}
+              : "Enter the 6-digit code sent to your email"}
           </span>
         </div>
       </AuthCard>

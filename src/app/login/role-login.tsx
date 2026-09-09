@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useSignIn, useAuth } from "@clerk/nextjs";
 
 import { HelpCircle, ShieldAlert, Mail, KeyRound } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
@@ -13,6 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { setBindingToken } from "@/lib/session-binding";
 import { setAuthCookie } from "@/lib/mock-auth";
 import { getDashboardRoute } from "@/lib/dashboard-route";
+import { getMe } from "@/lib/api/v1";
 import type { UserRole } from "@/lib/auth-types";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
@@ -31,9 +31,6 @@ export function RoleLoginPage({
   portal: "any" | "student" | "cad" | "admin";
   initialRole?: UserRole;
 }) {
-  const { signIn } = useSignIn();
-  const { getToken, isSignedIn } = useAuth();
-
   const [selectedRole, setSelectedRole] = useState<UserRole>(
     initialRole ||
       (portal === "student"
@@ -74,13 +71,11 @@ export function RoleLoginPage({
     }
   }, []);
 
-  // If already signed in, redirect to actual dashboard based on backend role.
+  // If already signed in (session cookie exists), redirect to actual dashboard.
   useEffect(() => {
-    if (!isSignedIn) return;
     let cancelled = false;
     (async () => {
       try {
-        const { getMe } = await import("@/lib/api/v1");
         const me = await getMe();
         if (cancelled) return;
         if (me.authenticated && me.user) {
@@ -88,53 +83,21 @@ export function RoleLoginPage({
           window.location.href = dest;
         }
       } catch {
-        // Not authenticated server-side — stay on login.
+        // Not authenticated — stay on login.
       }
     })();
     return () => { cancelled = true; };
-  }, [isSignedIn]);
+  }, []);
 
-  const setRoleFlags = () => {
-    sessionStorage.setItem("campusvote_login_role", selectedRole);
-    sessionStorage.removeItem("campusvote_bridged");
-    sessionStorage.removeItem("campusvote_dest");
-  };
-
-  const bridgeToBackend = async (role: string) => {
+  const fetchCsrfToken = async (): Promise<string> => {
     try {
-      const clerkToken = await getToken();
-      if (!clerkToken) {
-        throw new Error("No Clerk session token available. Please try again.");
-      }
-
-      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
-      const csrfData = await csrfRes.json().catch(() => ({}));
-      const csrfToken = csrfData.data?.csrfToken || "";
-
-      const res = await fetch(`${API_BASE}/auth/clerk-session`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrfToken,
-          "Authorization": `Bearer ${clerkToken}`,
-        },
-        body: JSON.stringify({ role }),
-      });
+      const res = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
       const data = await res.json().catch(() => ({}));
-
-      if (res.ok && data.data?.bindingToken) {
-        setBindingToken(data.data.bindingToken);
-      }
-      if (res.ok && data.data?.user) {
-        setAuthCookie(data.data.user.role || role, data.data.user.name || "", data.data.user.email || email);
-      }
-    } catch (err) {
-      console.error("Backend bridge failed:", err);
+      return data.data?.csrfToken || "";
+    } catch {
+      return "";
     }
   };
-
-  const isTestEmail = (e: string) => e.toLowerCase().includes("+clerk_test");
 
   const sendEmailCode = async () => {
     setError("");
@@ -142,72 +105,27 @@ export function RoleLoginPage({
       setError("Enter a valid email address to continue.");
       return;
     }
-    if (!signIn) return;
     setIsSending(true);
     try {
-      setRoleFlags();
       const normalized = email.trim().toLowerCase();
+      const role = selectedRole === "administrator" ? "student" : selectedRole;
+      const csrfToken = await fetchCsrfToken();
 
-      // If there's a stale sign-in from a previous attempt, Clerk may
-      // reject create() or sendCode() with a 400. Try to recover by
-      // creating again to reset the sign-in state.
-      let { error: createError } = await signIn.create({ identifier: normalized });
+      const res = await fetch(`${API_BASE}/auth/otp/send-login`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({ email: normalized, role: role.toUpperCase() }),
+      });
+      const data = await res.json().catch(() => ({}));
 
-      if (createError) {
-        // Try creating again to reset stale state.
-        try {
-          const retryCreate = await signIn.create({ identifier: normalized });
-          if (retryCreate.error) {
-            setError(retryCreate.error.longMessage || retryCreate.error.message || "Could not start sign-in. Please try again.");
-            setIsSending(false);
-            return;
-          }
-        } catch {
-          setError(createError.longMessage || createError.message || "Could not start sign-in. Please try again.");
-          setIsSending(false);
-          return;
-        }
-      }
-
-      let { error: sendError } = await signIn.emailCode.sendCode();
-
-      // If sendCode fails (stale sign-in state), try creating again.
-      if (sendError) {
-        try {
-          const retryCreate = await signIn.create({ identifier: normalized });
-          if (!retryCreate.error) {
-            const retry = await signIn.emailCode.sendCode();
-            if (retry.error) {
-              setError(retry.error.longMessage || retry.error.message || "Could not send verification code. Please try again.");
-              setIsSending(false);
-              return;
-            }
-          } else {
-            setError(retryCreate.error.longMessage || retryCreate.error.message || "Could not send verification code. Please try again.");
-            setIsSending(false);
-            return;
-          }
-        } catch {
-          setError(sendError.longMessage || sendError.message || "Could not send verification code. Please try again.");
-          setIsSending(false);
-          return;
-        }
-      }
-
-      // For test emails (+clerk_test), no email is sent — auto-verify with 424242.
-      if (isTestEmail(email)) {
-        const { error: verifyErr } = await signIn.emailCode.verifyCode({ code: "424242" });
-        if (!verifyErr && signIn.status === "complete") {
-          const backendRole = selectedRole === "administrator" ? "STUDENT" : selectedRole.toUpperCase();
-          await bridgeToBackend(backendRole);
-          const roleKey = selectedRole === "administrator" ? "ADMIN" : selectedRole.toUpperCase();
-          const dest = getDashboardRoute(roleKey);
-          sessionStorage.removeItem("campusvote_bridged");
-          sessionStorage.setItem("campusvote_dest", dest);
-          window.location.href = dest;
-          return;
-        }
-        // If auto-verify fails, fall through to manual code entry.
+      if (!res.ok) {
+        setError(data.error?.message || "Could not send verification code. Please try again.");
+        setIsSending(false);
+        return;
       }
 
       setStage("code");
@@ -225,34 +143,52 @@ export function RoleLoginPage({
       setError("Enter the code you received by email.");
       return;
     }
-    if (!signIn) return;
     setIsVerifying(true);
     try {
-      const { error } = await signIn.emailCode.verifyCode({ code: code.trim() });
+      const normalized = email.trim().toLowerCase();
+      const role = selectedRole === "administrator" ? "student" : selectedRole;
+      const csrfToken = await fetchCsrfToken();
 
-      if (error) {
-        if (error.code === "form_identifier_not_found") {
-          sessionStorage.setItem("campusvote_pending_email", email.trim().toLowerCase());
+      const res = await fetch(`${API_BASE}/auth/otp/verify-login`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({
+          email: normalized,
+          otp: code.trim(),
+          role: role.toUpperCase(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        if (res.status === 404 || data.data?.needsRegistration) {
+          // No account found — redirect to register
+          sessionStorage.setItem("campusvote_pending_email", normalized);
           sessionStorage.setItem("campusvote_pending_role", selectedRole);
           window.location.href = "/register?from=login";
           return;
         }
-        setError(error.longMessage || error.message || "Invalid or expired code. Please try again.");
+        setError(data.error?.message || "Invalid or expired code. Please try again.");
         setIsVerifying(false);
         return;
       }
 
-      // Email code verified — check status before bridging.
-      if (signIn.status !== "complete") {
-        // Status may be intermediate; try to get token anyway.
-        // If getToken fails, bridgeToBackend will throw.
+      // Success — store binding token and auth cookie
+      if (data.data?.bindingToken) {
+        setBindingToken(data.data.bindingToken);
       }
-      const backendRole = selectedRole === "administrator" ? "STUDENT" : selectedRole.toUpperCase();
-      await bridgeToBackend(backendRole);
+      if (data.data?.user) {
+        const user = data.data.user;
+        const roleKey = selectedRole === "administrator" ? "administrator" : selectedRole;
+        setAuthCookie(roleKey as any, user.name || user.fullName || "", user.email || normalized);
+      }
 
       const roleKey = selectedRole === "administrator" ? "ADMIN" : selectedRole.toUpperCase();
       const dest = getDashboardRoute(roleKey);
-
       sessionStorage.removeItem("campusvote_bridged");
       sessionStorage.setItem("campusvote_dest", dest);
       window.location.href = dest;
@@ -266,11 +202,25 @@ export function RoleLoginPage({
   const resendCode = async () => {
     setCode("");
     setError("");
-    if (!signIn) return;
+    setIsSending(true);
     try {
-      await signIn.emailCode.sendCode();
+      const normalized = email.trim().toLowerCase();
+      const role = selectedRole === "administrator" ? "student" : selectedRole;
+      const csrfToken = await fetchCsrfToken();
+
+      await fetch(`${API_BASE}/auth/otp/send-login`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({ email: normalized, role: role.toUpperCase() }),
+      });
     } catch (err) {
       console.error("Resend failed:", err);
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -282,9 +232,7 @@ export function RoleLoginPage({
     }
     setIsAdminLoggingIn(true);
     try {
-      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: "include" });
-      const csrfData = await csrfRes.json().catch(() => ({}));
-      const csrfToken = csrfData.data?.csrfToken || "";
+      const csrfToken = await fetchCsrfToken();
 
       const res = await fetch(`${API_BASE}/auth/admin-portal-login`, {
         method: "POST",
@@ -480,9 +428,10 @@ export function RoleLoginPage({
                   <button
                     type="button"
                     onClick={resendCode}
+                    disabled={isSending}
                     className="text-primary-600 hover:text-primary-700 font-medium"
                   >
-                    Resend code
+                    {isSending ? "Sending..." : "Resend code"}
                   </button>
                   <button
                     type="button"
@@ -497,40 +446,6 @@ export function RoleLoginPage({
                     Use a different email
                   </button>
                 </div>
-              </>
-            )}
-
-            {!isAdminFlow && (
-              <>
-                <div className="relative my-2">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-border" />
-                  </div>
-                  <div className="relative flex justify-center text-xs">
-                    <span className="bg-white dark:bg-[#1a1a2e] px-2 text-text-muted">or continue with</span>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!signIn) return;
-                    setRoleFlags();
-                    const { error } = await signIn.sso({
-                      strategy: "oauth_google",
-                      redirectUrl: "/auth/clerk-callback",
-                      redirectCallbackUrl: "/auth/clerk-callback",
-                    });
-                    if (error) {
-                      console.error("[login] sso error:", error);
-                      setError(error.message || "Google sign-in failed. Please try again.");
-                    }
-                  }}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-border rounded-xl text-sm font-medium text-text-primary bg-white dark:bg-[#252540] hover:bg-gray-50 dark:hover:bg-[#2a2a4a] transition"
-                >
-                  <svg className="w-5 h-5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-                  Sign in with Google
-                </button>
               </>
             )}
 
