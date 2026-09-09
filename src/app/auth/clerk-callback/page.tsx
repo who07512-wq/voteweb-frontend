@@ -1,8 +1,8 @@
 "use client";
 
-import React, { Suspense, useEffect, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAuth, useUser } from "@clerk/nextjs";
+import { useAuth, useUser, useSignIn } from "@clerk/nextjs";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
@@ -12,15 +12,17 @@ import { getDashboardRoute } from "@/lib/dashboard-route";
 function CallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { getToken, isSignedIn, isLoaded } = useAuth();
+  const { getToken, isLoaded } = useAuth();
+  const { signIn } = useSignIn();
   const { user } = useUser();
   const [step, setStep] = useState<"loading" | "success" | "error">("loading");
   const [errorMsg, setErrorMsg] = useState("");
   const redirect = searchParams.get("redirect") || "";
-  const flowStep = searchParams.get("step");
+  const hasRun = useRef(false);
 
   useEffect(() => {
-    if (!isLoaded) return;
+    if (!isLoaded || hasRun.current) return;
+    hasRun.current = true;
 
     let cancelled = false;
 
@@ -43,15 +45,32 @@ function CallbackContent() {
           return;
         }
 
-        // 2. OAuth flow: wait for Clerk session to be established, then bridge.
-        // After sso() redirect, Clerk may need time to initialize the session.
+        // 2. OAuth flow: finalize the Clerk sign-in, then bridge to backend.
+        if (!signIn) {
+          if (!cancelled) {
+            setErrorMsg("Sign-in not available. Please try again.");
+            setStep("error");
+          }
+          return;
+        }
+
+        // After sso() redirect, the sign-in may be complete but not finalized.
+        if (signIn.status === "complete" || signIn.status === "needs_first_factor") {
+          // Finalize to activate the session
+          if (signIn.status === "complete") {
+            await signIn.finalize({
+              navigate: async () => {
+                // Don't let Clerk navigate — we handle routing ourselves
+              },
+            });
+          }
+        }
+
+        // Now try to get the token
         let token: string | null = null;
         for (let attempt = 0; attempt < 30; attempt++) {
-          // First check if Clerk reports the user as signed in
-          if (isSignedIn) {
-            token = await getToken();
-            if (token) break;
-          }
+          token = await getToken();
+          if (token) break;
           await new Promise((r) => setTimeout(r, 500));
         }
 
@@ -141,7 +160,7 @@ function CallbackContent() {
     return () => {
       cancelled = true;
     };
-  }, [router, getToken, isSignedIn, isLoaded, redirect, flowStep, user]);
+  }, [router, getToken, isLoaded, redirect, signIn, user]);
 
   return (
     <AuthLayout>
