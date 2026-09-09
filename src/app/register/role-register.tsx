@@ -346,10 +346,10 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
               type="button"
               onClick={async () => {
                 if (!signUp) return;
-                const { error } = await signUp.authenticateWithRedirect({
+                const { error } = await signUp.sso({
                   strategy: "oauth_google",
                   redirectUrl: "/auth/clerk-callback",
-                  redirectUrlComplete: "/auth/clerk-callback?step=bridge&redirect=/register",
+                  redirectCallbackUrl: "/auth/clerk-callback?step=bridge&redirect=/register",
                 });
                 if (error) {
                   setError(error.message || "Google sign-up failed. Please try again.");

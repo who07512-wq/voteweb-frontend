@@ -516,10 +516,10 @@ export function RoleLoginPage({
                   onClick={async () => {
                     if (!signIn) return;
                     setRoleFlags();
-                    const { error } = await signIn.authenticateWithRedirect({
+                    const { error } = await signIn.sso({
                       strategy: "oauth_google",
                       redirectUrl: "/auth/clerk-callback",
-                      redirectUrlComplete: "/auth/clerk-callback?step=bridge",
+                      redirectCallbackUrl: "/auth/clerk-callback?step=bridge",
                     });
                     if (error) {
                       setError(error.message || "Google sign-in failed. Please try again.");
