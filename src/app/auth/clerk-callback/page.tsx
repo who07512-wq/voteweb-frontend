@@ -2,7 +2,7 @@
 
 import React, { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import { Loader2 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
@@ -12,6 +12,7 @@ function CallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { getToken, isSignedIn } = useAuth();
+  const { user } = useUser();
   const [step, setStep] = useState<"routing" | "error">("routing");
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -63,7 +64,9 @@ function CallbackContent() {
             "X-CSRF-Token": csrfToken,
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({}),
+          body: JSON.stringify({
+            name: user?.fullName || user?.firstName || user?.username || "",
+          }),
         });
 
         if (!res.ok) {
@@ -77,9 +80,9 @@ function CallbackContent() {
         }
 
         const data = await res.json();
-        const user = data.data?.user || {};
-        const role = String(user.role || "STUDENT").toUpperCase();
-        const email = user.email || "";
+        const backendUser = data.data?.user || {};
+        const role = String(backendUser.role || "STUDENT").toUpperCase();
+        const email = backendUser.email || "";
 
         // Store role in cookie for callback and other pages
         document.cookie = `campusvote_auth=${encodeURIComponent(JSON.stringify({ role, email }))}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
