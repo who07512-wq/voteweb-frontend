@@ -12,7 +12,7 @@ import { getDashboardRoute } from "@/lib/dashboard-route";
 function CallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { getToken, isSignedIn, isLoaded } = useAuth();
+  const { getToken, isLoaded } = useAuth();
   const { user } = useUser();
   const [step, setStep] = useState<"loading" | "success" | "error">("loading");
   const [errorMsg, setErrorMsg] = useState("");
@@ -43,8 +43,9 @@ function CallbackContent() {
           return;
         }
 
-        // 2. OAuth flow: get Clerk session token and bridge to backend.
-        if (!isSignedIn || !getToken) {
+        // 2. OAuth flow: try to get Clerk session token and bridge to backend.
+        // After a redirect, isSignedIn may not be ready yet — retry getToken() a few times.
+        if (!getToken) {
           if (!cancelled) {
             setErrorMsg("No active Clerk session. Please sign in again.");
             setStep("error");
@@ -52,7 +53,13 @@ function CallbackContent() {
           return;
         }
 
-        const token = await getToken();
+        let token: string | null = null;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          token = await getToken();
+          if (token) break;
+          await new Promise((r) => setTimeout(r, 500));
+        }
+
         if (!token) {
           if (!cancelled) {
             setErrorMsg("Could not retrieve session token. Please sign in again.");
@@ -145,7 +152,7 @@ function CallbackContent() {
     return () => {
       cancelled = true;
     };
-  }, [router, getToken, isSignedIn, isLoaded, redirect, user]);
+  }, [router, getToken, isLoaded, redirect, user]);
 
   return (
     <AuthLayout>
