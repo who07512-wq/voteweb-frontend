@@ -7,6 +7,7 @@ import { Loader2, CheckCircle2 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
 import { setAuthCookie } from "@/lib/mock-auth";
+import { setBindingToken } from "@/lib/session-binding";
 import { getDashboardRoute } from "@/lib/dashboard-route";
 
 function CallbackContent() {
@@ -64,6 +65,10 @@ function CallbackContent() {
     const name = user?.fullName || user?.firstName || user?.username || "";
 
     setAuthCookie(role as any, name, email);
+
+    if (backendData?.bindingToken) {
+      setBindingToken(backendData.bindingToken);
+    }
 
     let dest: string;
 
