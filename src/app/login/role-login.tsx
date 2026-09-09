@@ -135,18 +135,50 @@ export function RoleLoginPage({
       setRoleFlags();
       const normalized = email.trim().toLowerCase();
 
-      const { error: createError } = await signIn.create({ identifier: normalized });
+      // If there's a stale sign-in from a previous attempt, Clerk may
+      // reject create() or sendCode() with a 400. Try to recover by
+      // creating again to reset the sign-in state.
+      let { error: createError } = await signIn.create({ identifier: normalized });
+
       if (createError) {
-        setError(createError.longMessage || createError.message || "Could not start sign-in. Please try again.");
-        setIsSending(false);
-        return;
+        // Try creating again to reset stale state.
+        try {
+          const retryCreate = await signIn.create({ identifier: normalized });
+          if (retryCreate.error) {
+            setError(retryCreate.error.longMessage || retryCreate.error.message || "Could not start sign-in. Please try again.");
+            setIsSending(false);
+            return;
+          }
+        } catch {
+          setError(createError.longMessage || createError.message || "Could not start sign-in. Please try again.");
+          setIsSending(false);
+          return;
+        }
       }
 
-      const { error: sendError } = await signIn.emailCode.sendCode();
+      let { error: sendError } = await signIn.emailCode.sendCode();
+
+      // If sendCode fails (stale sign-in state), try creating again.
       if (sendError) {
-        setError(sendError.longMessage || sendError.message || "Could not send verification code. Please try again.");
-        setIsSending(false);
-        return;
+        try {
+          const retryCreate = await signIn.create({ identifier: normalized });
+          if (!retryCreate.error) {
+            const retry = await signIn.emailCode.sendCode();
+            if (retry.error) {
+              setError(retry.error.longMessage || retry.error.message || "Could not send verification code. Please try again.");
+              setIsSending(false);
+              return;
+            }
+          } else {
+            setError(retryCreate.error.longMessage || retryCreate.error.message || "Could not send verification code. Please try again.");
+            setIsSending(false);
+            return;
+          }
+        } catch {
+          setError(sendError.longMessage || sendError.message || "Could not send verification code. Please try again.");
+          setIsSending(false);
+          return;
+        }
       }
 
       setStage("code");

@@ -109,20 +109,48 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     try {
       const normalized = email.trim().toLowerCase();
 
-      const { error: createError } = await signUp.create({
+      // If there's a stale sign-up from a previous attempt, Clerk may
+      // reject create() or sendEmailCode() with a 400. Try to recover
+      // by setting the email address again to reset the sign-up state.
+      let createError: { longMessage?: string; message?: string; code?: string } | null = null;
+      const createResult = await signUp.create({
         emailAddress: normalized,
       });
+      createError = createResult.error || null;
+
       if (createError) {
-        setError(createError.longMessage || createError.message || "Could not start registration. Please try again.");
-        setIsSending(false);
-        return;
+        if (createError.code === "form_identifier_exists") {
+          setError("This email is already registered. Please sign in instead.");
+          setIsSending(false);
+          return;
+        }
+        // For other create errors, try to reset by setting email again.
+        try {
+          await signUp.update({ emailAddress: normalized });
+          createError = null;
+        } catch {
+          setError(createError?.longMessage || createError?.message || "Could not start registration. Please try again.");
+          setIsSending(false);
+          return;
+        }
       }
 
-      const { error: sendError } = await signUp.verifications.sendEmailCode();
+      let { error: sendError } = await signUp.verifications.sendEmailCode();
+
       if (sendError) {
-        setError(sendError.longMessage || sendError.message || "Could not send verification code. Please try again.");
-        setIsSending(false);
-        return;
+        try {
+          await signUp.update({ emailAddress: normalized });
+          const retry = await signUp.verifications.sendEmailCode();
+          if (retry.error) {
+            setError(retry.error.longMessage || retry.error.message || "Could not send verification code. Please try again.");
+            setIsSending(false);
+            return;
+          }
+        } catch {
+          setError(sendError.longMessage || sendError.message || "Could not send verification code. Please try again.");
+          setIsSending(false);
+          return;
+        }
       }
 
       setStage("code");
