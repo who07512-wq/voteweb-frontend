@@ -5,6 +5,7 @@ const IS_STUDENT_PORTAL_CLOSED =
   process.env.NEXT_PUBLIC_STUDENT_PORTAL_CLOSED === "true";
 
 const isStudentPortalRoute = createRouteMatcher(["/student(.*)"]);
+const isAdminRoute = createRouteMatcher(["/admin(.*)"]);
 const isPublicRoute = createRouteMatcher([
   "/",
   "/login(.*)",
@@ -28,6 +29,13 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
 
   // Protect non-public routes
   if (!isPublicRoute(request)) {
+    const { userId } = await auth();
+    if (!userId) {
+      // Unauthenticated: send admin routes to /login/admin, others to /login
+      const url = request.nextUrl.clone();
+      url.pathname = isAdminRoute(request) ? "/login/admin" : "/login";
+      return NextResponse.redirect(url);
+    }
     await auth.protect();
   }
 
