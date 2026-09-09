@@ -10,12 +10,30 @@ import { Loader2 } from "lucide-react";
  * Root — sends already-authenticated users to their role's dashboard and
  * everyone else to /login. The backend session (getMe) is the source of
  * truth for the role, never client state.
+ *
+ * If the user just signed out (campusvote_signed_out flag in sessionStorage),
+ * skip the getMe() check entirely and go straight to /login. This prevents
+ * a stale backend session (cv_sid cookie) from causing a redirect loop
+ * through /portal-closed.
  */
 export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
     let cancelled = false;
+
+    // If user just signed out, skip backend check and go to login.
+    try {
+      const justSignedOut = sessionStorage.getItem("campusvote_signed_out");
+      if (justSignedOut) {
+        sessionStorage.removeItem("campusvote_signed_out");
+        router.replace("/login");
+        return;
+      }
+    } catch {
+      // Private mode — continue with normal flow.
+    }
+
     (async () => {
       try {
         const me = await getMe();
