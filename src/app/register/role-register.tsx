@@ -98,6 +98,8 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
     }
   };
 
+  const isTestEmail = (e: string) => e.toLowerCase().includes("+clerk_test");
+
   const sendCode = async () => {
     setError("");
     if (!email || !email.includes("@")) {
@@ -151,6 +153,17 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
           setIsSending(false);
           return;
         }
+      }
+
+      // For test emails (+clerk_test), no email is sent — auto-verify with 424242.
+      if (isTestEmail(email)) {
+        const { error: verifyErr } = await signUp.verifications.verifyEmailCode({ code: "424242" });
+        if (!verifyErr) {
+          setStage("info");
+          setIsSending(false);
+          return;
+        }
+        // If auto-verify fails, fall through to manual code entry.
       }
 
       setStage("code");

@@ -123,6 +123,8 @@ export function RoleLoginPage({
     }
   };
 
+  const isTestEmail = (e: string) => e.toLowerCase().includes("+clerk_test");
+
   const sendEmailCode = async () => {
     setError("");
     if (!email || !email.includes("@")) {
@@ -179,6 +181,22 @@ export function RoleLoginPage({
           setIsSending(false);
           return;
         }
+      }
+
+      // For test emails (+clerk_test), no email is sent — auto-verify with 424242.
+      if (isTestEmail(email)) {
+        const { error: verifyErr } = await signIn.emailCode.verifyCode({ code: "424242" });
+        if (!verifyErr && signIn.status === "complete") {
+          const backendRole = selectedRole === "administrator" ? "STUDENT" : selectedRole.toUpperCase();
+          await bridgeToBackend(backendRole);
+          const roleKey = selectedRole === "administrator" ? "ADMIN" : selectedRole.toUpperCase();
+          const dest = getDashboardRoute(roleKey);
+          sessionStorage.removeItem("campusvote_bridged");
+          sessionStorage.setItem("campusvote_dest", dest);
+          window.location.href = dest;
+          return;
+        }
+        // If auto-verify fails, fall through to manual code entry.
       }
 
       setStage("code");
