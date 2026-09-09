@@ -3,6 +3,7 @@
 import React, { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
+import { AuthenticateWithRedirectCallback } from "@clerk/nextjs";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
@@ -17,9 +18,9 @@ function CallbackContent() {
   const [step, setStep] = useState<"loading" | "success" | "error">("loading");
   const [errorMsg, setErrorMsg] = useState("");
   const redirect = searchParams.get("redirect") || "";
+  const flowStep = searchParams.get("step");
 
   useEffect(() => {
-    // Wait for Clerk to finish loading before checking isSignedIn
     if (!isLoaded) return;
 
     let cancelled = false;
@@ -43,101 +44,93 @@ function CallbackContent() {
           return;
         }
 
-        // 2. OAuth flow: try to get Clerk session token and bridge to backend.
-        // After a redirect, isSignedIn may not be ready yet — retry getToken() a few times.
-        if (!getToken) {
+        // 2. OAuth bridge step: Clerk has established the session, now bridge to backend.
+        if (flowStep === "bridge") {
+          let token: string | null = null;
+          for (let attempt = 0; attempt < 15; attempt++) {
+            token = await getToken();
+            if (token) break;
+            await new Promise((r) => setTimeout(r, 500));
+          }
+
+          if (!token) {
+            if (!cancelled) {
+              setErrorMsg("Could not retrieve session token. Please try again.");
+              setStep("error");
+            }
+            return;
+          }
+
+          const backendUrl = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
+
+          const csrfRes = await fetch(`${backendUrl}/auth/csrf`, {
+            credentials: "include",
+          });
+          const csrfData = await csrfRes.json().catch(() => ({}));
+          const csrfToken = csrfData.data?.csrfToken || "";
+
+          const res = await fetch(`${backendUrl}/auth/clerk-session`, {
+            method: "POST",
+            credentials: "include",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRF-Token": csrfToken,
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              name: user?.fullName || user?.firstName || user?.username || "",
+            }),
+          });
+
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            const msg =
+              typeof data.error === "string"
+                ? data.error
+                : data.error?.message || "Failed to create session. Please try again.";
+            if (!cancelled) {
+              setErrorMsg(msg);
+              setStep("error");
+            }
+            return;
+          }
+
+          const data = await res.json();
+          const backendUser = data.data?.user || {};
+          const role = String(backendUser.role || "STUDENT").toUpperCase();
+          const email = backendUser.email || "";
+          const name = user?.fullName || user?.firstName || user?.username || "";
+
+          setAuthCookie(role as any, name, email);
+
+          let dest: string;
+
+          if (redirect === "/register") {
+            dest = "/register?stage=info";
+          } else {
+            dest = getDashboardRoute(role);
+
+            const loginRole = sessionStorage.getItem("campusvote_login_role") || "student";
+            if (role === "STUDENT" && loginRole === "candidate") {
+              dest = "/candidate/apply";
+            }
+          }
+
+          sessionStorage.removeItem("campusvote_login_role");
+          sessionStorage.removeItem("campusvote_pending_email");
+          sessionStorage.removeItem("campusvote_pending_role");
+          sessionStorage.removeItem("campusvote_dest");
+
           if (!cancelled) {
-            setErrorMsg("No active Clerk session. Please sign in again.");
-            setStep("error");
+            setStep("success");
+            setTimeout(() => router.replace(dest), 800);
           }
           return;
         }
 
-        let token: string | null = null;
-        for (let attempt = 0; attempt < 5; attempt++) {
-          token = await getToken();
-          if (token) break;
-          await new Promise((r) => setTimeout(r, 500));
-        }
-
-        if (!token) {
-          if (!cancelled) {
-            setErrorMsg("Could not retrieve session token. Please sign in again.");
-            setStep("error");
-          }
-          return;
-        }
-
-        const backendUrl = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
-
-        // First fetch CSRF token
-        const csrfRes = await fetch(`${backendUrl}/auth/csrf`, {
-          credentials: "include",
-        });
-        const csrfData = await csrfRes.json().catch(() => ({}));
-        const csrfToken = csrfData.data?.csrfToken || "";
-
-        const res = await fetch(`${backendUrl}/auth/clerk-session`, {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRF-Token": csrfToken,
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            name: user?.fullName || user?.firstName || user?.username || "",
-          }),
-        });
-
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          const msg = typeof data.error === "string"
-            ? data.error
-            : data.error?.message || "Failed to create session. Please try again.";
-          if (!cancelled) {
-            setErrorMsg(msg);
-            setStep("error");
-          }
-          return;
-        }
-
-        const data = await res.json();
-        const backendUser = data.data?.user || {};
-        const role = String(backendUser.role || "STUDENT").toUpperCase();
-        const email = backendUser.email || "";
-
-        const name = user?.fullName || user?.firstName || user?.username || "";
-
-        // Store role in cookie for callback and other pages (same format as login page)
-        setAuthCookie(role as any, name, email);
-
-        // Check the redirect param
-        let dest: string;
-
-        if (redirect === "/register") {
-          // OAuth from register page: user is new, go to info form
-          dest = "/register?stage=info";
-        } else {
-          dest = getDashboardRoute(role);
-
-          // Students on candidate portal go to application form
-          const loginRole = sessionStorage.getItem("campusvote_login_role") || "student";
-          if (role === "STUDENT" && loginRole === "candidate") {
-            dest = "/candidate/apply";
-          }
-        }
-
-        // Clean up session storage
-        sessionStorage.removeItem("campusvote_login_role");
-        sessionStorage.removeItem("campusvote_pending_email");
-        sessionStorage.removeItem("campusvote_pending_role");
-        sessionStorage.removeItem("campusvote_dest");
-
-        if (!cancelled) {
-          setStep("success");
-          setTimeout(() => router.replace(dest), 800);
-        }
+        // 3. First OAuth visit: render <AuthenticateWithRedirectCallback /> to process.
+        // If we reach here without step=bridge and without cookie, it means
+        // this is the initial callback from Clerk. Let the component handle it.
       } catch (err) {
         console.error("Callback routing failed:", err);
         if (!cancelled) {
@@ -152,8 +145,32 @@ function CallbackContent() {
     return () => {
       cancelled = true;
     };
-  }, [router, getToken, isLoaded, redirect, user]);
+  }, [router, getToken, isLoaded, redirect, flowStep, user]);
 
+  // First OAuth visit: let Clerk's component handle the callback
+  if (flowStep !== "bridge") {
+    return (
+      <AuthLayout>
+        <AuthCard>
+          <div className="text-center py-8">
+            <Loader2 className="w-10 h-10 animate-spin text-primary-600 mx-auto mb-4" />
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">
+              Processing authentication...
+            </h2>
+            <p className="text-sm text-gray-500">Please wait while we verify your account</p>
+            <div className="mt-4">
+              <AuthenticateWithRedirectCallback
+                signInFallbackRedirectUrl="/auth/clerk-callback?step=bridge"
+                signUpFallbackRedirectUrl="/auth/clerk-callback?step=bridge&redirect=/register"
+              />
+            </div>
+          </div>
+        </AuthCard>
+      </AuthLayout>
+    );
+  }
+
+  // Bridge step: showing loading/success/error states
   return (
     <AuthLayout>
       <AuthCard>
@@ -164,7 +181,7 @@ function CallbackContent() {
               <h2 className="text-lg font-semibold text-gray-900 mb-1">
                 Signing you in...
               </h2>
-              <p className="text-sm text-gray-500">Verifying your credentials</p>
+              <p className="text-sm text-gray-500">Setting up your session</p>
             </>
           )}
           {step === "success" && (
@@ -201,11 +218,6 @@ function CallbackContent() {
   );
 }
 
-/**
- * Post-login callback page. Handles both:
- * 1. OTP flow: cookie already set by login/register pages
- * 2. OAuth flow: get Clerk session token, bridge to backend, then route
- */
 export default function ClerkCallbackPage() {
   return (
     <Suspense
