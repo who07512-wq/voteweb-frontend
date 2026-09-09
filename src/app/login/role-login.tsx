@@ -15,6 +15,7 @@ import { getDashboardRoute } from "@/lib/dashboard-route";
 import type { UserRole } from "@/lib/auth-types";
 import { useSignIn, useClerk } from "@clerk/nextjs";
 import { ClerkOtpLogin } from "@/components/auth/ClerkOtpLogin";
+import { ClientOnly } from "@/components/ClientOnly";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "/api/v1").replace(/\/$/, "");
 
@@ -43,7 +44,7 @@ function GoogleButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-export function RoleLoginPage({
+export function RoleLoginPageInner({
   portal,
   initialRole,
 }: {
@@ -546,5 +547,16 @@ export function RoleLoginPage({
         </div>
       </AuthCard>
     </AuthLayout>
+  );
+}
+
+export function RoleLoginPage(props: {
+  portal: "any" | "student" | "cad" | "admin";
+  initialRole?: UserRole;
+}) {
+  return (
+    <ClientOnly>
+      <RoleLoginPageInner {...props} />
+    </ClientOnly>
   );
 }

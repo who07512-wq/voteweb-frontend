@@ -8,6 +8,7 @@ import { setBindingToken } from "@/lib/session-binding";
 import { setAuthCookie } from "@/lib/mock-auth";
 import { getDashboardRoute } from "@/lib/dashboard-route";
 import type { UserRole } from "@/lib/auth-types";
+import { ClientOnly } from "@/components/ClientOnly";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "/api/v1").replace(/\/$/, "");
 
@@ -24,7 +25,7 @@ function toUserRole(role: unknown): UserRole {
   }
 }
 
-export default function ClerkCallbackPage() {
+function ClerkCallbackInner() {
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const { user } = useUser();
   const [error, setError] = useState("");
@@ -108,5 +109,22 @@ export default function ClerkCallbackPage() {
         <p className="text-sm text-gray-600">Completing secure sign in…</p>
       </div>
     </div>
+  );
+}
+
+export default function ClerkCallbackPage() {
+  return (
+    <ClientOnly
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-primary-600 mx-auto mb-3" />
+            <p className="text-sm text-gray-600">Completing secure sign in…</p>
+          </div>
+        </div>
+      }
+    >
+      <ClerkCallbackInner />
+    </ClientOnly>
   );
 }
