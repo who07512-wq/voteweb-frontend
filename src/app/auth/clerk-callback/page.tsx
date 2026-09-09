@@ -3,7 +3,7 @@
 import React, { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { Loader2 } from "lucide-react";
+import { Loader2, CheckCircle2 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
 import { setAuthCookie } from "@/lib/mock-auth";
@@ -12,13 +12,18 @@ import { getDashboardRoute } from "@/lib/dashboard-route";
 function CallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { getToken, isSignedIn } = useAuth();
+  const { getToken, isSignedIn, isLoaded } = useAuth();
   const { user } = useUser();
-  const [step, setStep] = useState<"routing" | "error">("routing");
+  const [step, setStep] = useState<"loading" | "success" | "error">("loading");
   const [errorMsg, setErrorMsg] = useState("");
   const redirect = searchParams.get("redirect") || "";
 
   useEffect(() => {
+    // Wait for Clerk to finish loading before checking isSignedIn
+    if (!isLoaded) return;
+
+    let cancelled = false;
+
     const run = async () => {
       try {
         // 1. If the OTP flow already set the auth cookie, route directly.
@@ -31,21 +36,28 @@ function CallbackContent() {
           sessionStorage.removeItem("campusvote_pending_email");
           sessionStorage.removeItem("campusvote_pending_role");
           sessionStorage.removeItem("campusvote_dest");
-          setTimeout(() => router.replace(dest), 300);
+          if (!cancelled) {
+            setStep("success");
+            setTimeout(() => router.replace(dest), 800);
+          }
           return;
         }
 
         // 2. OAuth flow: get Clerk session token and bridge to backend.
         if (!isSignedIn || !getToken) {
-          setErrorMsg("No active Clerk session. Please sign in again.");
-          setStep("error");
+          if (!cancelled) {
+            setErrorMsg("No active Clerk session. Please sign in again.");
+            setStep("error");
+          }
           return;
         }
 
         const token = await getToken();
         if (!token) {
-          setErrorMsg("Could not retrieve session token. Please sign in again.");
-          setStep("error");
+          if (!cancelled) {
+            setErrorMsg("Could not retrieve session token. Please sign in again.");
+            setStep("error");
+          }
           return;
         }
 
@@ -76,8 +88,10 @@ function CallbackContent() {
           const msg = typeof data.error === "string"
             ? data.error
             : data.error?.message || "Failed to create session. Please try again.";
-          setErrorMsg(msg);
-          setStep("error");
+          if (!cancelled) {
+            setErrorMsg(msg);
+            setStep("error");
+          }
           return;
         }
 
@@ -113,27 +127,48 @@ function CallbackContent() {
         sessionStorage.removeItem("campusvote_pending_role");
         sessionStorage.removeItem("campusvote_dest");
 
-        setTimeout(() => router.replace(dest), 300);
+        if (!cancelled) {
+          setStep("success");
+          setTimeout(() => router.replace(dest), 800);
+        }
       } catch (err) {
         console.error("Callback routing failed:", err);
-        setErrorMsg("Something went wrong. Please try signing in again.");
-        setStep("error");
+        if (!cancelled) {
+          setErrorMsg("Something went wrong. Please try signing in again.");
+          setStep("error");
+        }
       }
     };
 
     run();
-  }, [router, getToken, isSignedIn, redirect]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router, getToken, isSignedIn, isLoaded, redirect, user]);
 
   return (
     <AuthLayout>
       <AuthCard>
         <div className="text-center py-8">
-          {step === "routing" && (
+          {step === "loading" && (
             <>
               <Loader2 className="w-10 h-10 animate-spin text-primary-600 mx-auto mb-4" />
               <h2 className="text-lg font-semibold text-gray-900 mb-1">
-                Taking you to your dashboard...
+                Signing you in...
               </h2>
+              <p className="text-sm text-gray-500">Verifying your credentials</p>
+            </>
+          )}
+          {step === "success" && (
+            <>
+              <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 className="w-8 h-8 text-green-600" />
+              </div>
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">
+                Welcome back!
+              </h2>
+              <p className="text-sm text-gray-500">Redirecting you to your dashboard...</p>
             </>
           )}
           {step === "error" && (

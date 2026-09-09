@@ -242,8 +242,7 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
       const backendRole = selectedRole.toUpperCase();
       await bridgeToBackend(backendRole);
 
-      const dest =
-        backendRole === "STUDENT" && rollNumber.trim() ? "/candidate/apply" : getDashboardRoute(backendRole);
+      const dest = getDashboardRoute(backendRole);
 
       window.location.href = dest;
     } catch (err) {
