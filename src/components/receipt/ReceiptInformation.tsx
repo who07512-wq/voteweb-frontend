@@ -4,7 +4,20 @@ import React from "react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { CheckCircle2 } from "lucide-react";
-import { VoteReceipt } from "@/lib/receipt-data";
+
+type ReceiptStatus = "recorded" | "pending" | "invalid" | "not_found" | "error";
+
+interface VoteReceipt {
+  id: string;
+  receiptId: string;
+  electionName: string;
+  status: ReceiptStatus;
+  submittedAt: string;
+  submittedDate: string;
+  submittedTime: string;
+  electionStatus: string;
+  verificationUrl: string;
+}
 
 interface ReceiptInformationProps {
   receipt: VoteReceipt;

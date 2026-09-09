@@ -19,9 +19,9 @@ import { Button } from "@/components/ui/Button";
 import { setBindingToken } from "@/lib/session-binding";
 import { setAuthCookie } from "@/lib/mock-auth";
 import { getDashboardRoute } from "@/lib/dashboard-route";
-import { getMe } from "@/lib/api/v1";
+import { SignUp } from "@clerk/nextjs";
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "/api/v1").replace(/\/$/, "");
 
 type Stage = "email" | "code" | "info";
 export type RegisterPortal = "any" | "candidate" | "student";
@@ -35,24 +35,6 @@ const PORTAL_TITLES: Record<RegisterPortal, string> = {
 export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
   const [selectedRole] = useState<"candidate" | "student">("candidate");
 
-  // If already signed in (stale session from a previous login), redirect to
-  // login so the user can sign out properly before registering a new account.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const me = await getMe();
-        if (cancelled) return;
-        if (me.authenticated && me.user) {
-          window.location.href = getDashboardRoute(me.user.role);
-        }
-      } catch {
-        // Not authenticated server-side — stay on register.
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
   const [stage, setStage] = useState<Stage>("email");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -64,6 +46,34 @@ export function RoleRegisterPage({ portal }: { portal: RegisterPortal }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+
+  if (process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
+    const callbackUrl = `/auth/clerk-callback?role=${encodeURIComponent(selectedRole)}`;
+    return (
+      <AuthLayout>
+        <AuthCard>
+          <div className="text-center mb-6">
+            <AuthHeader
+              title={PORTAL_TITLES[portal]}
+              subtitle="Create your secure CampusVote account"
+            />
+          </div>
+          <SignUp
+            routing="hash"
+            forceRedirectUrl={callbackUrl}
+            fallbackRedirectUrl={callbackUrl}
+            signInUrl="/login"
+            appearance={{
+              elements: {
+                rootBox: "w-full",
+                card: "shadow-none p-0 w-full",
+              },
+            }}
+          />
+        </AuthCard>
+      </AuthLayout>
+    );
+  }
 
   const fetchCsrfToken = async (): Promise<string> => {
     try {

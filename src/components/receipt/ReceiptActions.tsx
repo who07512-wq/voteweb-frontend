@@ -3,7 +3,20 @@
 import React from "react";
 import { Button } from "@/components/ui/Button";
 import { Download, Printer, Share2 } from "lucide-react";
-import { VoteReceipt } from "@/lib/receipt-data";
+
+type ReceiptStatus = "recorded" | "pending" | "invalid" | "not_found" | "error";
+
+interface VoteReceipt {
+  id: string;
+  receiptId: string;
+  electionName: string;
+  status: ReceiptStatus;
+  submittedAt: string;
+  submittedDate: string;
+  submittedTime: string;
+  electionStatus: string;
+  verificationUrl: string;
+}
 
 interface ReceiptActionsProps {
   receipt: VoteReceipt;

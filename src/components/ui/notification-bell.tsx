@@ -2,9 +2,19 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Bell } from "lucide-react";
-import type { Notification } from "@/lib/notification-data";
-
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api/v1").replace(/\/$/, "");
+
+interface Notification {
+  id: string;
+  type: "success" | "info" | "warning" | "error";
+  category: string;
+  priority: string;
+  title: string;
+  message: string;
+  timestamp: string;
+  read: boolean;
+  action?: { label: string; href: string };
+}
 
 interface ApiNotificationRow {
   id: number;

@@ -12,10 +12,10 @@ import { Button } from "@/components/ui/Button";
 import { setBindingToken } from "@/lib/session-binding";
 import { setAuthCookie } from "@/lib/mock-auth";
 import { getDashboardRoute } from "@/lib/dashboard-route";
-import { getMe } from "@/lib/api/v1";
 import type { UserRole } from "@/lib/auth-types";
+import { SignIn } from "@clerk/nextjs";
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "/api/v1").replace(/\/$/, "");
 
 const ROLE_LABEL: Record<string, string> = {
   student: "Student",
@@ -69,24 +69,6 @@ export function RoleLoginPage({
       setError("This account is not authorized for this portal. Sign in from the correct portal for your role.");
       sessionStorage.removeItem("campusvote_role_mismatch");
     }
-  }, []);
-
-  // If already signed in (session cookie exists), redirect to actual dashboard.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const me = await getMe();
-        if (cancelled) return;
-        if (me.authenticated && me.user) {
-          const dest = getDashboardRoute(me.user.role);
-          window.location.href = dest;
-        }
-      } catch {
-        // Not authenticated — stay on login.
-      }
-    })();
-    return () => { cancelled = true; };
   }, []);
 
   const fetchCsrfToken = async (): Promise<string> => {
@@ -274,6 +256,41 @@ export function RoleLoginPage({
   };
 
   const roleKey = isAdminFlow ? "administrator" : selectedRole;
+
+  if (!isAdminFlow && process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
+    const callbackUrl = `/auth/clerk-callback?role=${encodeURIComponent(selectedRole)}`;
+
+    return (
+      <AuthLayout>
+        <AuthCard>
+          <div className="text-center mb-6">
+            <AuthHeader
+              title={
+                portal === "cad"
+                  ? "CAD Portal"
+                  : portal === "student"
+                    ? "Student Portal"
+                    : "Sign In"
+              }
+              subtitle="Sign in securely with your email, Google, or another enabled provider"
+            />
+          </div>
+          <SignIn
+            routing="hash"
+            forceRedirectUrl={callbackUrl}
+            fallbackRedirectUrl={callbackUrl}
+            signUpUrl="/register"
+            appearance={{
+              elements: {
+                rootBox: "w-full",
+                card: "shadow-none p-0 w-full",
+              },
+            }}
+          />
+        </AuthCard>
+      </AuthLayout>
+    );
+  }
 
   return (
     <AuthLayout>

@@ -4,8 +4,14 @@ import React from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { ReceiptHistoryItem } from "@/lib/receipt-data";
 import { CheckCircle2, Eye } from "lucide-react";
+
+interface ReceiptHistoryItem {
+  electionName: string;
+  receiptId: string;
+  status: string;
+  date: string;
+}
 
 interface ReceiptHistoryProps {
   history: ReceiptHistoryItem[];

@@ -1,9 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { clerkMiddleware } from "@clerk/nextjs/server";
+
+const hasClerkKey = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 const IS_STUDENT_PORTAL_CLOSED =
   process.env.NEXT_PUBLIC_STUDENT_PORTAL_CLOSED === "true";
 
-export default function proxy(request: NextRequest) {
+function appProxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Student portal block
@@ -20,6 +23,7 @@ export default function proxy(request: NextRequest) {
     "/login",
     "/register",
     "/admin",
+    "/auth",
     "/portal-closed",
     "/email-recovery",
     "/reset-password",
@@ -51,6 +55,25 @@ export default function proxy(request: NextRequest) {
 
   return NextResponse.next();
 }
+
+/**
+ * When Clerk is configured, run clerkMiddleware so that the
+ * /auth/clerk-callback page can resolve the signed-in Clerk session
+ * (useAuth / getToken) and exchange it at the backend.
+ *
+ * Note: we deliberately do NOT call auth.protect() here — it would bounce
+ * unauthenticated users to Clerk's hosted sign-in page instead of the app's
+ * own /login flow (Clerk SignIn component / email OTP). Real authorization
+ * is enforced by the backend (cv_sid session); the proxy only does the
+ * soft-cookie redirect below.
+ *
+ * Without a Clerk key, only the plain app proxy runs (backend OTP flow).
+ */
+export default hasClerkKey
+  ? clerkMiddleware(async (_auth, req) => appProxy(req))
+  : function proxyWithoutClerk(request: NextRequest) {
+      return appProxy(request);
+    };
 
 export const config = {
   matcher: [

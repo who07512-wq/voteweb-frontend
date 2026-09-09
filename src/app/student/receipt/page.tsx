@@ -12,9 +12,29 @@ import { ReceiptQRCode } from "@/components/receipt/ReceiptQRCode";
 import { ReceiptVerification } from "@/components/receipt/ReceiptVerification";
 import { ReceiptActions } from "@/components/receipt/ReceiptActions";
 import { ReceiptHistory } from "@/components/receipt/ReceiptHistory";
-import type { VoteReceipt, ReceiptHistoryItem } from "@/lib/receipt-data";
 import { listElections, getMyElectionReceipt, type ElectionInfo, type VoteReceipt as ApiReceipt } from "@/lib/voting-api";
 import { ArrowLeft, Users, Loader2 } from "lucide-react";
+
+type ReceiptStatus = "recorded" | "pending" | "invalid" | "not_found" | "error";
+
+interface VoteReceipt {
+  id: string;
+  receiptId: string;
+  electionName: string;
+  status: ReceiptStatus;
+  submittedAt: string;
+  submittedDate: string;
+  submittedTime: string;
+  electionStatus: string;
+  verificationUrl: string;
+}
+
+interface ReceiptHistoryItem {
+  electionName: string;
+  receiptId: string;
+  status: ReceiptStatus;
+  date: string;
+}
 
 function formatSubmittedAt(iso: string): string {
   const d = new Date(iso);
