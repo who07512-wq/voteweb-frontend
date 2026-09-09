@@ -519,9 +519,10 @@ export function RoleLoginPage({
                     const { error } = await signIn.sso({
                       strategy: "oauth_google",
                       redirectUrl: "/auth/clerk-callback",
-                      redirectCallbackUrl: "/auth/clerk-callback?step=bridge",
+                      redirectCallbackUrl: "/auth/clerk-callback",
                     });
                     if (error) {
+                      console.error("[login] sso error:", error);
                       setError(error.message || "Google sign-in failed. Please try again.");
                     }
                   }}

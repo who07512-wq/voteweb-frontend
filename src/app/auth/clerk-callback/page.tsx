@@ -2,7 +2,7 @@
 
 import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAuth, useUser, useSignIn } from "@clerk/nextjs";
+import { useAuth, useUser, useSignIn, useSignUp, useClerk } from "@clerk/nextjs";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { AuthCard } from "@/components/auth/AuthCard";
@@ -13,12 +13,79 @@ function CallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { getToken, isLoaded } = useAuth();
+  const clerk = useClerk();
   const { signIn } = useSignIn();
+  const { signUp } = useSignUp();
   const { user } = useUser();
   const [step, setStep] = useState<"loading" | "success" | "error">("loading");
   const [errorMsg, setErrorMsg] = useState("");
   const redirect = searchParams.get("redirect") || "";
   const hasRun = useRef(false);
+
+  const bridgeToBackend = async (token: string, name?: string) => {
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
+
+    const csrfRes = await fetch(`${backendUrl}/auth/csrf`, {
+      credentials: "include",
+    });
+    const csrfData = await csrfRes.json().catch(() => ({}));
+    const csrfToken = csrfData.data?.csrfToken || "";
+
+    const res = await fetch(`${backendUrl}/auth/clerk-session`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": csrfToken,
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        name: name || user?.fullName || user?.firstName || user?.username || "",
+      }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const msg =
+        typeof data.error === "string"
+          ? data.error
+          : data.error?.message || "Failed to create session.";
+      throw new Error(msg);
+    }
+
+    const data = await res.json();
+    return data.data;
+  };
+
+  const navigateAfterBridge = (backendData: any) => {
+    const backendUser = backendData?.user || {};
+    const role = String(backendUser.role || "STUDENT").toUpperCase();
+    const email = backendUser.email || "";
+    const name = user?.fullName || user?.firstName || user?.username || "";
+
+    setAuthCookie(role as any, name, email);
+
+    let dest: string;
+
+    if (redirect === "/register") {
+      dest = "/register?stage=info";
+    } else {
+      dest = getDashboardRoute(role);
+
+      const loginRole = sessionStorage.getItem("campusvote_login_role") || "student";
+      if (role === "STUDENT" && loginRole === "candidate") {
+        dest = "/candidate/apply";
+      }
+    }
+
+    sessionStorage.removeItem("campusvote_login_role");
+    sessionStorage.removeItem("campusvote_pending_email");
+    sessionStorage.removeItem("campusvote_pending_role");
+    sessionStorage.removeItem("campusvote_dest");
+
+    setStep("success");
+    setTimeout(() => router.replace(dest), 800);
+  };
 
   useEffect(() => {
     if (!isLoaded || hasRun.current) return;
@@ -45,36 +112,90 @@ function CallbackContent() {
           return;
         }
 
-        // 2. OAuth flow: finalize the Clerk sign-in, then bridge to backend.
-        if (!signIn) {
-          if (!cancelled) {
-            setErrorMsg("Sign-in not available. Please try again.");
-            setStep("error");
-          }
-          return;
+        // 2. OAuth flow: follow the official Clerk v7 callback pattern.
+        console.log("[clerk-callback] signIn status:", signIn?.status);
+        console.log("[clerk-callback] signUp status:", signUp?.status);
+        console.log("[clerk-callback] signIn existingSession:", !!signIn?.existingSession);
+        console.log("[clerk-callback] signUp existingSession:", !!signUp?.existingSession);
+        console.log("[clerk-callback] signIn isTransferable:", signIn?.isTransferable);
+        console.log("[clerk-callback] signUp isTransferable:", signUp?.isTransferable);
+
+        // Case A: Sign-in is already complete — finalize it.
+        if (signIn?.status === "complete") {
+          console.log("[clerk-callback] signIn complete, finalizing...");
+          await signIn.finalize({
+            navigate: async ({ session, decorateUrl }: any) => {
+              if (session?.currentTask) {
+                console.log("[clerk-callback] session task:", session.currentTask);
+                return;
+              }
+              // Don't navigate — we handle routing ourselves after bridging.
+            },
+          });
         }
 
-        // After sso() redirect, the sign-in may be complete but not finalized.
-        if (signIn.status === "complete" || signIn.status === "needs_first_factor") {
-          // Finalize to activate the session
+        // Case B: Sign-up used an existing account — transfer to sign-in.
+        if (signUp?.isTransferable) {
+          console.log("[clerk-callback] signUp transferable, transferring to sign-in...");
+          await signIn.create({ transfer: true });
           if (signIn.status === "complete") {
             await signIn.finalize({
-              navigate: async () => {
-                // Don't let Clerk navigate — we handle routing ourselves
-              },
+              navigate: async () => {},
             });
           }
         }
 
-        // Now try to get the token
+        // Case C: Sign-in used an external account not in DB — transfer to sign-up.
+        if (signIn?.isTransferable) {
+          console.log("[clerk-callback] signIn transferable, transferring to sign-up...");
+          await signUp.create({ transfer: true });
+          if (signUp.status === "complete") {
+            await signUp.finalize({
+              navigate: async () => {},
+            });
+          }
+          // Sign-up needs more info — redirect to register.
+          if (!cancelled) {
+            setErrorMsg("Account not found. Redirecting to registration...");
+            setStep("error");
+            setTimeout(() => router.replace("/register"), 1500);
+          }
+          return;
+        }
+
+        // Case D: Sign-in has an existing session — activate it.
+        if (signIn?.existingSession || signUp?.existingSession) {
+          const sessionId = signIn?.existingSession?.sessionId || signUp?.existingSession?.sessionId;
+          if (sessionId) {
+            console.log("[clerk-callback] activating existing session:", sessionId);
+            await clerk.setActive({
+              session: sessionId,
+              navigate: async () => {},
+            });
+          }
+        }
+
+        // Case E: Sign-up is complete — finalize it.
+        if (signUp?.status === "complete") {
+          console.log("[clerk-callback] signUp complete, finalizing...");
+          await signUp.finalize({
+            navigate: async () => {},
+          });
+        }
+
+        // Now try to get the token with retries.
         let token: string | null = null;
         for (let attempt = 0; attempt < 30; attempt++) {
           token = await getToken();
           if (token) break;
+          console.log(`[clerk-callback] getToken attempt ${attempt + 1} failed, retrying...`);
           await new Promise((r) => setTimeout(r, 500));
         }
 
         if (!token) {
+          console.error("[clerk-callback] all getToken attempts failed");
+          console.error("[clerk-callback] final signIn status:", signIn?.status);
+          console.error("[clerk-callback] final signUp status:", signUp?.status);
           if (!cancelled) {
             setErrorMsg("Could not retrieve session token. Please try again.");
             setStep("error");
@@ -82,74 +203,16 @@ function CallbackContent() {
           return;
         }
 
-        const backendUrl = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
-
-        const csrfRes = await fetch(`${backendUrl}/auth/csrf`, {
-          credentials: "include",
-        });
-        const csrfData = await csrfRes.json().catch(() => ({}));
-        const csrfToken = csrfData.data?.csrfToken || "";
-
-        const res = await fetch(`${backendUrl}/auth/clerk-session`, {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRF-Token": csrfToken,
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            name: user?.fullName || user?.firstName || user?.username || "",
-          }),
-        });
-
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          const msg =
-            typeof data.error === "string"
-              ? data.error
-              : data.error?.message || "Failed to create session. Please try again.";
-          if (!cancelled) {
-            setErrorMsg(msg);
-            setStep("error");
-          }
-          return;
-        }
-
-        const data = await res.json();
-        const backendUser = data.data?.user || {};
-        const role = String(backendUser.role || "STUDENT").toUpperCase();
-        const email = backendUser.email || "";
-        const name = user?.fullName || user?.firstName || user?.username || "";
-
-        setAuthCookie(role as any, name, email);
-
-        let dest: string;
-
-        if (redirect === "/register") {
-          dest = "/register?stage=info";
-        } else {
-          dest = getDashboardRoute(role);
-
-          const loginRole = sessionStorage.getItem("campusvote_login_role") || "student";
-          if (role === "STUDENT" && loginRole === "candidate") {
-            dest = "/candidate/apply";
-          }
-        }
-
-        sessionStorage.removeItem("campusvote_login_role");
-        sessionStorage.removeItem("campusvote_pending_email");
-        sessionStorage.removeItem("campusvote_pending_role");
-        sessionStorage.removeItem("campusvote_dest");
+        console.log("[clerk-callback] got token, bridging to backend...");
+        const backendData = await bridgeToBackend(token, user?.fullName || user?.firstName || user?.username || "");
 
         if (!cancelled) {
-          setStep("success");
-          setTimeout(() => router.replace(dest), 800);
+          navigateAfterBridge(backendData);
         }
       } catch (err) {
-        console.error("Callback routing failed:", err);
+        console.error("[clerk-callback] error:", err);
         if (!cancelled) {
-          setErrorMsg("Something went wrong. Please try signing in again.");
+          setErrorMsg(err instanceof Error ? err.message : "Something went wrong. Please try signing in again.");
           setStep("error");
         }
       }
@@ -160,7 +223,7 @@ function CallbackContent() {
     return () => {
       cancelled = true;
     };
-  }, [router, getToken, isLoaded, redirect, signIn, user]);
+  }, [router, getToken, isLoaded, redirect, signIn, signUp, clerk, user]);
 
   return (
     <AuthLayout>
